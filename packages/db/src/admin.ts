@@ -90,5 +90,14 @@ export async function changePassword(userId: string, current: string, next: stri
   await prisma.user.update({ where: { id: userId }, data: { passwordHash: await bcrypt.hash(next, 12), sessionsValidAfter: new Date() } });
 }
 
+/**
+ * Token timestamps have one-second resolution, so the cutoff is the first full second after the change: a token issued earlier in
+ * the same second as the change must not survive.
+ */
+export const sessionCutoff = (validAfter: Date) => Math.floor(validAfter.getTime() / 1000) + 1;
+
 /** True if a token issued at `iat` (seconds) is still valid for this user. */
-export const sessionStillValid = (validAfter: Date | null, iat: number | undefined) => !validAfter || (iat !== undefined && iat >= Math.floor(validAfter.getTime() / 1000));
+export const sessionStillValid = (validAfter: Date | null, iat: number | undefined) => !validAfter || (iat !== undefined && iat >= sessionCutoff(validAfter));
+
+/** The `iat` to put into a new token: now, but never before the user's cutoff (otherwise a login right after a change would be rejected). */
+export const tokenIssuedAt = (validAfter: Date | null, nowMs = Date.now()) => Math.max(Math.floor(nowMs / 1000), validAfter ? sessionCutoff(validAfter) : 0);
