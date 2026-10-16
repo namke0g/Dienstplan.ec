@@ -93,8 +93,13 @@ async function start({ dataDir, appDir, migrationsDir, log = () => {} }) {
   const pg = new EmbeddedPostgres({ databaseDir: pgDir, user: DB_USER, password: cfg.dbPassword, port: pgPort, persistent: true, onLog: () => {}, onError: (m) => log(`[postgres] ${String(m).trim()}`) });
 
   log(fresh ? "Datenbank wird angelegt …" : "Datenbank wird gestartet …");
-  if (fresh) await pg.initialise();
-  await pg.start();
+  try {
+    if (fresh) await pg.initialise();
+    log("Datenbank angelegt, wird gestartet …");
+    await pg.start();
+  } catch (e) {
+    throw new Error(`PostgreSQL konnte nicht starten: ${require("node:util").inspect(e)}`);
+  }
   const stopPostgres = () => pg.stop().catch(() => {});
 
   let web = null;

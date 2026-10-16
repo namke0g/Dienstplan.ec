@@ -23,7 +23,7 @@ function log(message) {
   }
 }
 
-process.on("unhandledRejection", (e) => log(`Unbehandelter Fehler: ${e}`));
+process.on("unhandledRejection", (e) => log(`Unbehandelter Fehler: ${require("node:util").inspect(e)}`));
 
 let backend = null;
 let win = null;

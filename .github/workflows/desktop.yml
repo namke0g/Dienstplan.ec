@@ -60,6 +60,20 @@ jobs:
           path: desktop/dist/Dienstplan-Setup-*.exe
           if-no-files-found: error
           retention-days: 30
+      - name: Diagnose PostgreSQL on this runner
+        continue-on-error: true
+        timeout-minutes: 3
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          $bin = (Resolve-Path "dist\win-unpacked\resources\app\node_modules\@embedded-postgres\windows-x64\native\bin").Path
+          Get-ChildItem $bin | Select-Object -First 12 Name | Out-String | Write-Host
+          whoami /groups | Select-String "High Mandatory|Administrators"
+          $pw = Join-Path $env:RUNNER_TEMP "pw.txt"; "secret`n" | Set-Content $pw
+          $d = Join-Path $env:RUNNER_TEMP "pgtest"
+          & "$bin\initdb.exe" --version
+          & "$bin\initdb.exe" --pgdata=$d --auth=password --username=u --pwfile=$pw 2>&1 | Select-Object -Last 15
+          Write-Host "initdb exit code: $LASTEXITCODE"
       - name: Start the unpacked app once (database, demo data, web server, login)
         timeout-minutes: 6
         working-directory: desktop
