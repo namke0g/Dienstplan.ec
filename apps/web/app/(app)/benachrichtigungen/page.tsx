@@ -1,7 +1,8 @@
-import { prisma } from "@dienstplan/db";
+import { prisma, vapidConfig, webPushConfigured } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
 import { markAllReadAction } from "@/app/actions";
 import { PushToggle } from "@/components/PushToggle";
+import { BrowserPushToggle } from "@/components/BrowserPushToggle";
 
 export default async function Page() {
   const me = await requireUser();
@@ -13,6 +14,7 @@ export default async function Page() {
         <form action={markAllReadAction}><button className="btn-ghost">Alle als gelesen markieren</button></form>
       </div>
       <PushToggle initial={me.pushEnabled} />
+      {webPushConfigured() && <BrowserPushToggle publicKey={vapidConfig().publicKey} />}
       {items.length === 0 && <p className="card text-sm text-slate-500">Noch keine Mitteilungen.</p>}
       <ul className="space-y-2">
         {items.map((n) => (

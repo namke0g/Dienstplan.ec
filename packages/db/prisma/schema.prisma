@@ -194,8 +194,14 @@ model DeviceToken {
   userId   String
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   platform Platform
+  /// Expo push token (IOS/ANDROID) or the Web Push endpoint URL (WEB)
   token    String   @unique
+  /// Web Push only: the subscription's encryption keys
+  p256dh   String?
+  auth     String?
   createdAt DateTime @default(now())
+  /// last time this device/browser was (re-)registered; used to keep the newest browsers per person
+  lastSeenAt DateTime @default(now())
 }
 
 model CalendarToken {
@@ -214,8 +220,10 @@ model Notification {
   body        String
   shortNotice Boolean   @default(false)
   createdAt   DateTime  @default(now())
-  /// set when a push attempt was made (success or not), so nothing is sent twice
+  /// set when push delivery is finished (success or not), so nothing is sent twice
   pushAttemptedAt DateTime?
+  /// lease while a delivery run is working on it; an expired lease (e.g. after a crash) lets the next run pick it up again
+  pushClaimedUntil DateTime?
   /// set when the push provider accepted the message for at least one device
   deliveredAt DateTime?
   readAt      DateTime?

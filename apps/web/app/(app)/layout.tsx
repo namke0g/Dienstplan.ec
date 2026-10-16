@@ -1,6 +1,7 @@
-import { prisma } from "@dienstplan/db";
+import { prisma, vapidConfig, webPushConfigured } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
 import { Nav } from "@/components/Nav";
+import { PushSync } from "@/components/PushSync";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const openSwaps = user.role === "EMPLOYEE" ? await prisma.swapRequest.count({ where: { partnerId: user.id, status: "PENDING_PARTNER" } }) : 0;
   return (
     <>
+      {webPushConfigured() && <PushSync publicKey={vapidConfig().publicKey} />}
       <Nav name={user.name} role={user.role} unread={unread} openRequests={openRequests} openSwaps={openSwaps} />
       <main className="mx-auto max-w-7xl space-y-4 px-4 py-6">{children}</main>
     </>

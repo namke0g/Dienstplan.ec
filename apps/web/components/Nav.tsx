@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Role } from "@dienstplan/db";
-import { logoutAction } from "@/app/actions";
+import { LogoutButton } from "@/components/LogoutButton";
 
 const ROLE_LABEL: Record<Role, string> = { ADMIN: "Admin", PLANNER: "Planer:in", PDL: "PDL", BETRIEBSRAT: "Betriebsrat", EMPLOYEE: "Mitarbeiter:in" };
 
@@ -27,7 +27,7 @@ export function Nav({ name, role, unread, openRequests = 0, openSwaps = 0 }: { n
         </nav>
         <div className="flex items-center gap-3 text-sm">
           <Link href="/konto" className="hidden text-slate-500 underline-offset-2 hover:underline sm:inline">{name} · {ROLE_LABEL[role]}</Link>
-          <form action={logoutAction}><button className="btn-ghost !py-1.5">Abmelden</button></form>
+          <LogoutButton />
         </div>
       </div>
     </header>

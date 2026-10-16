@@ -2,6 +2,7 @@ import bcrypt from "bcryptjs";
 import { randomBytes, randomInt } from "node:crypto";
 import type { Role } from "@prisma/client";
 import { prisma } from "./client";
+import { endBrowserPush } from "./push";
 
 export class AdminError extends Error {}
 
@@ -69,8 +70,13 @@ export async function resetPassword(emailIn: string, password?: string) {
   const email = normEmail(emailIn);
   const pw = password ?? generatePassword();
   checkPassword(pw);
-  const { count } = await prisma.user.updateMany({ where: { email }, data: { passwordHash: await bcrypt.hash(pw, 12), active: true, sessionsValidAfter: new Date() } });
-  if (!count) throw new AdminError(`Kein Konto für ${email}.`);
+  const hash = await bcrypt.hash(pw, 12);
+  await prisma.$transaction(async (tx) => {
+    const u = await tx.user.findUnique({ where: { email } });
+    if (!u) throw new AdminError(`Kein Konto für ${email}.`);
+    await tx.user.update({ where: { id: u.id }, data: { passwordHash: hash, active: true, sessionsValidAfter: new Date() } });
+    await endBrowserPush(u.id, tx);
+  });
   return { password: password ? null : pw };
 }
 
@@ -87,7 +93,11 @@ export async function changePassword(userId: string, current: string, next: stri
   if (!(await bcrypt.compare(current, user.passwordHash))) throw new AdminError("Das aktuelle Passwort ist falsch.");
   checkPassword(next);
   if (next === current) throw new AdminError("Das neue Passwort muss sich vom aktuellen unterscheiden.");
-  await prisma.user.update({ where: { id: userId }, data: { passwordHash: await bcrypt.hash(next, 12), sessionsValidAfter: new Date() } });
+  const hash = await bcrypt.hash(next, 12);
+  await prisma.$transaction(async (tx) => {
+    await tx.user.update({ where: { id: userId }, data: { passwordHash: hash, sessionsValidAfter: new Date() } });
+    await endBrowserPush(userId, tx); // other sessions ended; this browser re-registers right after (see Konto page)
+  });
 }
 
 /**

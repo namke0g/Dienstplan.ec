@@ -60,6 +60,22 @@ Die App ist ein Expo-Projekt (`apps/mobile`) und wird mit EAS gebaut; sie sprich
 4. `npx eas build --platform all --profile preview` für interne Tests, `--profile production` und `eas submit` für die Stores.
 5. Optional: Expo-Access-Token (Enhanced Push Security) als `EXPO_ACCESS_TOKEN` in `.env`.
 
+### Push im Browser (optional)
+Zusätzlich zur App können Mitteilungen auch im Browser erscheinen, z. B. am Stations-PC oder als zum Home-Bildschirm hinzugefügte Web-App.
+1. Schlüssel einmalig erzeugen: `docker compose run --rm migrate pnpm --filter @dienstplan/db exec web-push generate-vapid-keys`
+2. In `.env` `VAPID_SUBJECT` (z. B. `mailto:it@klinik.de`), `VAPID_PUBLIC_KEY` und `VAPID_PRIVATE_KEY` eintragen, dann `docker compose up -d web`. Der private Schlüssel ist geheim wie ein Passwort.
+3. Jede Person schaltet es unter *Mitteilungen → Browser-Mitteilungen* pro Browser ein.
+
+Wichtig:
+- Der Text im Browser ist bewusst **allgemein** („Es gibt eine neue Mitteilung …“), weil Bildschirme geteilt werden; Details sieht man erst nach der Anmeldung.
+- **Geteilte PCs:** Browser-Push endet für eine Person in diesem Browser, wenn sie sich abmeldet, wenn sich dort jemand anderes anmeldet (der Browser wechselt dann zu dieser Person) und wenn ihre Sitzungen serverseitig beendet werden (Passwort geändert/zurückgesetzt, Rolle oder E-Mail geändert, deaktiviert). Läuft eine Sitzung nur ab und niemand meldet sich danach an, bleibt der Browser bis zur nächsten Anmeldung eingetragen (mit allgemeinem Text).
+- Es werden nur Adressen der bekannten Push-Dienste (Google, Mozilla, Apple, Microsoft) angenommen; andere Ziele, z. B. interne Adressen, lehnt der Server ab.
+- iPhone/iPad: nur ab iOS 16.4 und nur, wenn die Seite über *Teilen → Zum Home-Bildschirm* hinzugefügt und von dort geöffnet wurde.
+- Fehlt einer der drei Werte, startet die App nicht (Fehlermeldung im Log). Ohne alle drei ist Browser-Push einfach aus. Stimmt ein Schlüssel nicht (z. B. falsch kopiert), steht bei jedem Versuch `web push to … failed` im Log (`docker compose logs web`); die Browser-Anmeldungen bleiben dabei erhalten.
+- Zustellung bedeutet „mindestens ein Gerät der Person hat die Mitteilung erhalten“. Fällt nur ein zweites Gerät vorübergehend aus, wird dort nicht nachgeliefert; in seltenen Fällen (Zeitüberschreitung, obwohl der Dienst die Mitteilung schon angenommen hatte) kann eine Mitteilung doppelt ankommen. Verloren geht keine: Sie steht immer unter *Mitteilungen* im Portal und in der App.
+- Push wird nach der Antwort an den Nutzer verschickt (niemand wartet darauf), parallel und mit 10 s Zeitlimit je Push-Dienst (`PUSH_TIMEOUT_MS`).
+- Nicht zugestellte Mitteilungen (z. B. weil ein Push-Dienst nicht erreichbar war, oder nach einem Neustart mitten im Versand) werden alle `PUSH_RETRY_SECONDS` (Standard 300) erneut versucht, bis zu 24 Stunden lang. Abgemeldete oder ungültige Browser (auch nach einem Schlüsselwechsel) werden automatisch entfernt; beim nächsten Öffnen der Seite schalten die Personen Browser-Push einfach wieder ein.
+
 ## 5. Laufender Betrieb
 | Aufgabe | Befehl |
 |---|---|

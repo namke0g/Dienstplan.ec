@@ -1,8 +1,9 @@
-import { acceptSwap, cancelSwap, declineSwap, deliverPendingNotifications, ForbiddenError, SwapError } from "@dienstplan/db";
+import { acceptSwap, cancelSwap, declineSwap, ForbiddenError, SwapError } from "@dienstplan/db";
+import { deliverSoon } from "@/lib/deliver";
 import { json, mobileUser, unauthorized } from "@/lib/mobileAuth";
 
 async function run(fn: () => Promise<unknown>) {
-  try { await fn(); await deliverPendingNotifications(); return json({ ok: true }); }
+  try { await fn(); deliverSoon(); return json({ ok: true }); }
   catch (e) {
     if (e instanceof SwapError) return json({ error: e.message }, 400);
     if (e instanceof ForbiddenError) return json({ error: "forbidden" }, 403);

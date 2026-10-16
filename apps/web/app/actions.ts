@@ -4,10 +4,11 @@ import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, deliverPendingNotifications, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
+import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
   createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
   setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError, ForbiddenError,
   createManagedUser, updateManagedUser, setManagedActive, resetManagedPassword, anonymizeUser, type Role } from "@dienstplan/db";
+import { deliverSoon } from "@/lib/deliver";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 import { clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess } from "@/lib/rateLimit";
 
@@ -40,14 +41,14 @@ export async function setShiftAction(planId: string, userId: string, date: strin
 export async function submitAction(planId: string) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await submitPlan(planId, me.id);
-  await deliverPendingNotifications();
+  deliverSoon();
   revalidatePath("/planer");
 }
 
 export async function publishAction(planId: string) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await publishPlan(planId, me.id);
-  await deliverPendingNotifications();
+  deliverSoon();
   revalidatePath("/planer");
   revalidatePath("/mein-plan");
 }
@@ -57,7 +58,7 @@ export async function reviewAction(planId: string, decision: "APPROVED" | "REJEC
   const comment = String(form.get("comment") ?? "");
   if (decision === "REJECTED" && !comment.trim()) redirect("/pruefung?err=comment");
   await reviewPlan(planId, me.id, decision, comment);
-  await deliverPendingNotifications();
+  deliverSoon();
   revalidatePath("/pruefung");
   redirect("/pruefung");
 }
@@ -101,7 +102,7 @@ export async function setPushEnabledAction(enabled: boolean) {
 async function leaveGuard(back: string, fn: () => Promise<unknown>) {
   let err: string | null = null;
   try { await fn(); } catch (e) { if (e instanceof LeaveError) err = e.message; else throw e; }
-  await deliverPendingNotifications();
+  deliverSoon();
   if (err) redirect(`${back}?err=${encodeURIComponent(err)}`);
 }
 
@@ -136,7 +137,7 @@ export async function applyLeaveAction(id: string, month: string) {
 async function swapGuard(back: string, fn: () => Promise<unknown>) {
   let err: string | null = null;
   try { await fn(); } catch (e) { if (e instanceof SwapError) err = e.message; else throw e; }
-  await deliverPendingNotifications();
+  deliverSoon();
   revalidatePath("/tausch"); revalidatePath("/antraege");
   if (err) redirect(`${back}${back.includes("?") ? "&" : "?"}err=${encodeURIComponent(err)}`);
 }

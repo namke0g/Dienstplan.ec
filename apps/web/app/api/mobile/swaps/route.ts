@@ -1,4 +1,5 @@
-import { canTake, createSwap, deliverPendingNotifications, swapBoard, SwapError, upcomingShifts } from "@dienstplan/db";
+import { canTake, createSwap, swapBoard, SwapError, upcomingShifts } from "@dienstplan/db";
+import { deliverSoon } from "@/lib/deliver";
 import { json, mobileUser, unauthorized } from "@/lib/mobileAuth";
 import { swapDto } from "@/lib/swapDto";
 
@@ -20,7 +21,7 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => ({}))) as { date?: string; partnerId?: string; partnerDate?: string; note?: string };
   try {
     const r = await createSwap(me.id, { date: String(b.date ?? ""), partnerId: b.partnerId, partnerDate: b.partnerDate, note: b.note });
-    await deliverPendingNotifications();
+    deliverSoon();
     return json({ id: r.id, status: r.status }, 201);
   } catch (e) {
     if (e instanceof SwapError) return json({ error: e.message }, 400);

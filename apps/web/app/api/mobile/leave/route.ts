@@ -1,4 +1,5 @@
-import { getBalance, prisma, createLeave, deliverPendingNotifications, LeaveError, toYmd } from "@dienstplan/db";
+import { getBalance, prisma, createLeave, LeaveError, toYmd } from "@dienstplan/db";
+import { deliverSoon } from "@/lib/deliver";
 import { json, mobileUser, unauthorized } from "@/lib/mobileAuth";
 
 const dto = (r: { id: string; status: string; start: Date; end: Date; note: string | null; decisionComment: string | null; shiftType: { id: string; name: string; paid: boolean } }) => ({
@@ -28,7 +29,7 @@ export async function POST(req: Request) {
   const b = (await req.json().catch(() => ({}))) as { typeId?: string; start?: string; end?: string; note?: string };
   try {
     const r = await createLeave(me.id, { shiftTypeId: String(b.typeId ?? ""), start: String(b.start ?? ""), end: String(b.end ?? b.start ?? ""), note: b.note });
-    await deliverPendingNotifications();
+    deliverSoon();
     const full = await prisma.leaveRequest.findUniqueOrThrow({ where: { id: r.id }, include: { shiftType: true } });
     return json(dto(full), 201);
   } catch (e) {
