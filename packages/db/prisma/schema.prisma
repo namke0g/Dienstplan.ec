@@ -1,0 +1,179 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  PLANNER
+  PDL
+  BETRIEBSRAT
+  EMPLOYEE
+}
+
+enum PlanStatus {
+  DRAFT
+  IN_REVIEW
+  CHANGES_REQUESTED
+  APPROVED
+  PUBLISHED
+}
+
+enum Decision {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum Platform {
+  IOS
+  ANDROID
+  WEB
+}
+
+model Ward {
+  id       String      @id @default(cuid())
+  name     String
+  users    User[]
+  plans    Plan[]
+  shiftTypes ShiftType[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String
+  passwordHash String
+  role         Role     @default(EMPLOYEE)
+  wardId       String
+  ward         Ward     @relation(fields: [wardId], references: [id])
+  active       Boolean  @default(true)
+  shifts       Shift[]
+  personal     PersonalEntry[]
+  devices      DeviceToken[]
+  calendar     CalendarToken?
+  notifications Notification[]
+  approvals    Approval[]
+}
+
+model ShiftType {
+  id       String  @id @default(cuid())
+  wardId   String
+  ward     Ward    @relation(fields: [wardId], references: [id])
+  code     String
+  name     String
+  startMin Int
+  endMin   Int
+  color    String  @default("#3b82f6")
+  shifts   Shift[]
+
+  @@unique([wardId, code])
+}
+
+model Plan {
+  id        String     @id @default(cuid())
+  wardId    String
+  ward      Ward       @relation(fields: [wardId], references: [id])
+  /// first day of the month, e.g. 2026-11-01
+  month     DateTime   @db.Date
+  status    PlanStatus @default(DRAFT)
+  version   Int        @default(1)
+  publishedAt DateTime?
+  publishedVersion Int?
+  /// frozen copy of shifts at publish time; staff only ever see this, so pending edits stay private until re-approved
+  publishedSnapshot Json?
+  shifts    Shift[]
+  approvals Approval[]
+  audit     AuditLog[]
+
+  @@unique([wardId, month])
+}
+
+model Shift {
+  id          String    @id @default(cuid())
+  planId      String
+  plan        Plan      @relation(fields: [planId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User      @relation(fields: [userId], references: [id])
+  shiftTypeId String
+  shiftType   ShiftType @relation(fields: [shiftTypeId], references: [id])
+  date        DateTime  @db.Date
+  /// bumped on every change, drives ICS SEQUENCE
+  sequence    Int       @default(0)
+
+  @@unique([planId, userId, date])
+  @@index([userId, date])
+}
+
+model Approval {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  version   Int
+  role      Role
+  decision  Decision @default(PENDING)
+  comment   String?
+  decidedAt DateTime?
+  decidedById String?
+  decidedBy User?    @relation(fields: [decidedById], references: [id])
+
+  @@unique([planId, version, role])
+}
+
+model PersonalEntry {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date   DateTime @db.Date
+  title  String
+  note   String?
+
+  @@index([userId, date])
+}
+
+model DeviceToken {
+  id       String   @id @default(cuid())
+  userId   String
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform Platform
+  token    String   @unique
+  createdAt DateTime @default(now())
+}
+
+model CalendarToken {
+  id     String @id @default(cuid())
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  secret String @unique
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        String
+  title       String
+  body        String
+  shortNotice Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  @@index([userId, createdAt])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  planId    String
+  plan      Plan     @relation(fields: [planId], references: [id], onDelete: Cascade)
+  actorId   String?
+  action    String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([planId, createdAt])
+}
