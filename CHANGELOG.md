@@ -4,7 +4,7 @@
 
 Erste Testversion. Zum Ausprobieren und für Rückmeldungen – noch nicht für den Echtbetrieb freigegeben.
 
-**Ausprobieren:** `docker compose -f docker-compose.demo.yml up --build`, dann http://localhost:3000 öffnen (Demo-Logins mit Passwort `demo1234`: `planer@demo.de`, `pdl@demo.de`, `br@demo.de`, `anna@demo.de`, `admin@demo.de`). Details im README unter „Testen“.
+**Ausprobieren:** `docker compose -f docker-compose.demo.yml up`, dann http://localhost:3000 öffnen (Demo-Logins mit Passwort `demo1234`: `planer@demo.de`, `pdl@demo.de`, `br@demo.de`, `anna@demo.de`, `admin@demo.de`). Details im README unter „Testen“.
 
 ### Dienstplanung
 - Planungsraster je Monat mit Regelprüfung (11 h Ruhezeit, max. 6 Tage am Stück, Mindestbesetzung), Feiertage je Bundesland und örtliche freie Tage
