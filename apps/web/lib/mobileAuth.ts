@@ -1,9 +1,11 @@
 import { SignJWT, jwtVerify } from "jose";
-import { prisma, sessionStillValid } from "@dienstplan/db";
+import { prisma, sessionStillValid, tokenIssuedAt } from "@dienstplan/db";
 import { secret } from "@/lib/auth";
 
-export const signMobileToken = (userId: string) =>
-  new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setAudience("mobile").setIssuedAt().setExpirationTime("90d").sign(secret());
+export async function signMobileToken(userId: string) {
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { sessionsValidAfter: true } });
+  return new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setAudience("mobile").setIssuedAt(tokenIssuedAt(u?.sessionsValidAfter ?? null)).setExpirationTime("90d").sign(secret());
+}
 
 export async function mobileUser(req: Request) {
   const h = req.headers.get("authorization");

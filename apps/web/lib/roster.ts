@@ -1,9 +1,19 @@
 import { prisma, toYmd, toDate, daysInMonth, type SnapshotShift } from "@dienstplan/db";
 import { validateRoster, DEFAULT_RULES, type Assignment, type Violation } from "@dienstplan/core";
 
-export async function wardContext(wardId: string) {
+/**
+ * Staff shown in the grids: active employees, plus people who left (deactivated/anonymised) but still have shifts in the
+ * given months, so past rosters keep their rows. New plans only list people who are still active.
+ */
+export async function wardContext(wardId: string, months: string[] = []) {
   const [staff, types] = await Promise.all([
-    prisma.user.findMany({ where: { wardId, active: true, role: "EMPLOYEE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.user.findMany({
+      where: {
+        wardId, role: "EMPLOYEE",
+        OR: [{ active: true }, ...(months.length ? [{ shifts: { some: { plan: { wardId, month: { in: months.map((m) => toDate(`${m}-01`)) } } } } }] : [])],
+      },
+      orderBy: { name: "asc" }, select: { id: true, name: true },
+    }),
     prisma.shiftType.findMany({ where: { wardId }, orderBy: { startMin: "asc" } }),
   ]);
   return { staff, types };

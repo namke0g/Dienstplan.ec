@@ -14,6 +14,7 @@ export function Nav({ name, role, unread, openRequests = 0, openSwaps = 0 }: { n
   links.push(["/urlaub", "Urlaub"]);
   if (role === "EMPLOYEE") links.push(["/tausch", openSwaps ? `Tausch (${openSwaps})` : "Tausch"]);
   if (role === "PLANNER" || role === "ADMIN" || role === "PDL") links.push(["/urlaubskonto", "Urlaubskonto"], ["/antraege", openRequests ? `Anträge (${openRequests})` : "Anträge"]);
+  if (role === "ADMIN" || role === "PLANNER") links.push(["/benutzer", "Benutzer"]);
   links.push(["/kalender", "Kalender"], ["/benachrichtigungen", unread ? `Mitteilungen (${unread})` : "Mitteilungen"]);
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">

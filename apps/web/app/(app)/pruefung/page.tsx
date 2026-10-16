@@ -9,8 +9,8 @@ import { reviewAction } from "@/app/actions";
 export default async function PruefungPage({ searchParams }: { searchParams: Promise<{ err?: string }> }) {
   const err = (await searchParams).err;
   const me = await requireUser(["PDL", "BETRIEBSRAT"]);
-  const { staff, types } = await wardContext(me.wardId);
   const plans = await prisma.plan.findMany({ where: { wardId: me.wardId, status: { in: ["IN_REVIEW", "CHANGES_REQUESTED", "APPROVED"] } }, orderBy: { month: "asc" }, include: { approvals: true } });
+  const { staff, types } = await wardContext(me.wardId, plans.map((p) => toYmd(p.month).slice(0, 7)));
   const names = new Map(staff.map((s) => [s.id, s.name]));
   const typeName = new Map(types.map((t) => [t.id, t.name]));
   const gridTypes = canSeeSick(me.role) ? toGridTypes(types) : [...toGridTypes(types.filter((t) => t.kind !== "SICK")), ABSENT_TYPE];

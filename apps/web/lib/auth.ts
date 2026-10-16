@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
-import { prisma, sessionStillValid, type Role } from "@dienstplan/db";
+import { prisma, sessionStillValid, tokenIssuedAt, type Role } from "@dienstplan/db";
 
 const COOKIE = "session";
 export const secret = () => {
@@ -11,7 +11,8 @@ export const secret = () => {
 };
 
 export async function createSession(userId: string) {
-  const token = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setAudience("web").setIssuedAt().setExpirationTime("30d").sign(secret());
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { sessionsValidAfter: true } });
+  const token = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setAudience("web").setIssuedAt(tokenIssuedAt(u?.sessionsValidAfter ?? null)).setExpirationTime("30d").sign(secret());
   (await cookies()).set(COOKIE, token, {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 24 * 30,
   });

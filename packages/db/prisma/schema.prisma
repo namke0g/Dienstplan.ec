@@ -99,6 +99,10 @@ model User {
   swapsReceived SwapRequest[] @relation("SwapPartner")
   swapsDecided SwapRequest[] @relation("SwapDecider")
   entitlements LeaveEntitlement[]
+  /// set when the account was anonymised (left the organisation); personal data is gone, roster history stays
+  anonymizedAt DateTime?
+  adminActions UserAudit[] @relation("AuditActor")
+  adminTargets UserAudit[] @relation("AuditTarget")
 }
 
 model ShiftType {
@@ -300,4 +304,18 @@ model LeaveEntitlement {
   note      String?
 
   @@unique([userId, year])
+}
+
+/// Who changed which account (create, role change, deactivate, password reset, anonymise). Kept after anonymisation.
+model UserAudit {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetId  String?
+  target    User?    @relation("AuditTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  action    String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }

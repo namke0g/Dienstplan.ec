@@ -55,7 +55,7 @@ describe("production bootstrap and user administration", () => {
   });
 });
 
-import { changePassword, sessionStillValid } from "../src";
+import { changePassword, sessionStillValid, sessionCutoff, tokenIssuedAt } from "../src";
 
 describe("password change and session invalidation", () => {
   it("needs the current password, enforces the policy and invalidates older sessions", async () => {
@@ -68,9 +68,9 @@ describe("password change and session invalidation", () => {
     await changePassword(u.id, "altes-passwort-1", "neues-passwort-1");
     const after = await prisma.user.findUniqueOrThrow({ where: { id: u.id } });
     expect(await bcrypt.compare("neues-passwort-1", after.passwordHash)).toBe(true);
-    const cutoff = Math.floor(after.sessionsValidAfter!.getTime() / 1000);
+    const cutoff = sessionCutoff(after.sessionsValidAfter!);
     expect(sessionStillValid(after.sessionsValidAfter, cutoff - 60)).toBe(false); // token from before the change
-    expect(sessionStillValid(after.sessionsValidAfter, cutoff + 1)).toBe(true); // token from the new login
+    expect(sessionStillValid(after.sessionsValidAfter, cutoff)).toBe(true); // token from the new login
     expect(sessionStillValid(after.sessionsValidAfter, undefined)).toBe(false);
     expect(sessionStillValid(null, undefined)).toBe(true); // never changed: no restriction
   });
@@ -79,5 +79,25 @@ describe("password change and session invalidation", () => {
     await resetPassword("pw@klinik.de");
     const u = await prisma.user.findUniqueOrThrow({ where: { email: "pw@klinik.de" } });
     expect(u.sessionsValidAfter).not.toBeNull();
+  });
+});
+
+describe("session cutoff has second resolution without loopholes", () => {
+  const changed = new Date("2030-01-01T12:00:05.700Z"); // password changed 0.7 s into second :05
+  it("a token issued in the same second as the change is rejected", () => {
+    const sameSecond = Math.floor(changed.getTime() / 1000);
+    expect(sessionStillValid(changed, sameSecond)).toBe(false); // this was the bug: issued earlier in that second, survived the change
+    expect(sessionStillValid(changed, sameSecond + 1)).toBe(true);
+  });
+  it("even a change exactly on a whole second rejects tokens issued in that second", () => {
+    const exact = new Date("2030-01-01T12:00:05.000Z");
+    expect(sessionStillValid(exact, Math.floor(exact.getTime() / 1000))).toBe(false);
+  });
+  it("tokens issued after the change are stamped at or after the cutoff, so a login in the same second still works", () => {
+    const nowMs = changed.getTime() + 200; // 0.2 s after the change
+    const iat = tokenIssuedAt(changed, nowMs);
+    expect(sessionStillValid(changed, iat)).toBe(true);
+    expect(tokenIssuedAt(null, nowMs)).toBe(Math.floor(nowMs / 1000)); // never changed: plain "now"
+    expect(tokenIssuedAt(changed, changed.getTime() + 60_000)).toBe(Math.floor((changed.getTime() + 60_000) / 1000)); // later: plain "now"
   });
 });

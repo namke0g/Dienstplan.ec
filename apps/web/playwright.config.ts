@@ -5,6 +5,8 @@ const chromium = "/opt/pw-browsers/chromium";
 export default defineConfig({
   testDir: "e2e",
   workers: 1,
+  // one retry in CI: a test that only passes on retry is reported as "flaky" (annotation), not silently ignored
+  retries: process.env.CI ? 1 : 0,
   // in CI, failed tests become annotations with the error message (readable without downloading logs)
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
   timeout: 60_000,

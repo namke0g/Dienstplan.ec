@@ -7,3 +7,4 @@ export * from "./leave";
 export * from "./swap";
 export * from "./balance";
 export * from "./admin";
+export * from "./users";

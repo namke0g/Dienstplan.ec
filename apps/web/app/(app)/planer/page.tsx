@@ -11,7 +11,7 @@ export default async function PlanerPage({ searchParams }: { searchParams: Promi
   const me = await requireUser(["PLANNER", "ADMIN"]);
   const sp = await searchParams;
   const month = monthParam(sp.m);
-  const { staff, types } = await wardContext(me.wardId);
+  const { staff, types } = await wardContext(me.wardId, [month]);
   const plan = await getOrCreatePlan(me.wardId, `${month}-01`);
   const shifts = await draftShifts(plan.id);
   const approvals = await prisma.approval.findMany({ where: { planId: plan.id, version: plan.version }, include: { decidedBy: { select: { name: true } } } });

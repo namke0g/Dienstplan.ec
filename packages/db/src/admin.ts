@@ -10,10 +10,10 @@ const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 
 
 export const generatePassword = (len = 16) => Array.from({ length: len }, () => ALPHABET[randomInt(ALPHABET.length)]).join("");
 
-function checkPassword(pw: string) {
+export function checkPassword(pw: string) {
   if (pw.length < MIN_PASSWORD) throw new AdminError(`Das Passwort muss mindestens ${MIN_PASSWORD} Zeichen lang sein.`);
 }
-const normEmail = (e: string) => {
+export const normEmail = (e: string) => {
   const email = e.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new AdminError(`Ungültige E-Mail-Adresse: ${e}`);
   return email;
@@ -90,5 +90,14 @@ export async function changePassword(userId: string, current: string, next: stri
   await prisma.user.update({ where: { id: userId }, data: { passwordHash: await bcrypt.hash(next, 12), sessionsValidAfter: new Date() } });
 }
 
+/**
+ * Token timestamps have one-second resolution, so the cutoff is the first full second after the change: a token issued earlier in
+ * the same second as the change must not survive.
+ */
+export const sessionCutoff = (validAfter: Date) => Math.floor(validAfter.getTime() / 1000) + 1;
+
 /** True if a token issued at `iat` (seconds) is still valid for this user. */
-export const sessionStillValid = (validAfter: Date | null, iat: number | undefined) => !validAfter || (iat !== undefined && iat >= Math.floor(validAfter.getTime() / 1000));
+export const sessionStillValid = (validAfter: Date | null, iat: number | undefined) => !validAfter || (iat !== undefined && iat >= sessionCutoff(validAfter));
+
+/** The `iat` to put into a new token: now, but never before the user's cutoff (otherwise a login right after a change would be rejected). */
+export const tokenIssuedAt = (validAfter: Date | null, nowMs = Date.now()) => Math.max(Math.floor(nowMs / 1000), validAfter ? sessionCutoff(validAfter) : 0);
