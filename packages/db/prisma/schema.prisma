@@ -29,6 +29,17 @@ enum LeaveStatus {
   CANCELLED
 }
 
+enum SwapStatus {
+  OPEN
+  PENDING_PARTNER
+  PENDING_PLANNER
+  APPLIED
+  DECLINED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
 enum PlanStatus {
   DRAFT
   IN_REVIEW
@@ -75,6 +86,9 @@ model User {
   approvals    Approval[]
   leaveRequests LeaveRequest[] @relation("LeaveOwner")
   leaveDecisions LeaveRequest[] @relation("LeaveDecider")
+  swapsRequested SwapRequest[] @relation("SwapRequester")
+  swapsReceived SwapRequest[] @relation("SwapPartner")
+  swapsDecided SwapRequest[] @relation("SwapDecider")
 }
 
 model ShiftType {
@@ -92,6 +106,8 @@ model ShiftType {
   paid     Boolean @default(true)
   shifts   Shift[]
   leaveRequests LeaveRequest[]
+  swapsOffered SwapRequest[] @relation("SwapOfferedType")
+  swapsWanted SwapRequest[] @relation("SwapWantedType")
 
   @@unique([wardId, code])
 }
@@ -224,4 +240,33 @@ model LeaveRequest {
 
   @@index([userId, start])
   @@index([status, start])
+}
+
+/// A shift swap/hand-over between colleagues on the published roster. Applied by the planner without a new plan version.
+model SwapRequest {
+  id          String     @id @default(cuid())
+  wardId      String
+  requesterId String
+  requester   User       @relation("SwapRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  /// null while the offer is open to everyone; set when named up front or when a colleague takes it
+  partnerId   String?
+  partner     User?      @relation("SwapPartner", fields: [partnerId], references: [id])
+  date        DateTime   @db.Date
+  shiftTypeId String
+  shiftType   ShiftType  @relation("SwapOfferedType", fields: [shiftTypeId], references: [id])
+  /// the colleague's shift the requester wants in return; null = hand-over without return
+  partnerDate DateTime?  @db.Date
+  partnerShiftTypeId String?
+  partnerShiftType   ShiftType? @relation("SwapWantedType", fields: [partnerShiftTypeId], references: [id])
+  note        String?
+  status      SwapStatus @default(OPEN)
+  decidedById String?
+  decidedBy   User?      @relation("SwapDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  decisionComment String?
+  createdAt   DateTime   @default(now())
+
+  @@index([wardId, status])
+  @@index([requesterId])
+  @@index([partnerId])
 }

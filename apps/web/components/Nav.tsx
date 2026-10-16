@@ -4,7 +4,7 @@ import { logoutAction } from "@/app/actions";
 
 const ROLE_LABEL: Record<Role, string> = { ADMIN: "Admin", PLANNER: "Planer:in", PDL: "PDL", BETRIEBSRAT: "Betriebsrat", EMPLOYEE: "Mitarbeiter:in" };
 
-export function Nav({ name, role, unread, openRequests = 0 }: { name: string; role: Role; unread: number; openRequests?: number }) {
+export function Nav({ name, role, unread, openRequests = 0, openSwaps = 0 }: { name: string; role: Role; unread: number; openRequests?: number; openSwaps?: number }) {
   const links: [string, string][] =
     role === "PLANNER" || role === "ADMIN"
       ? [["/planer", "Planung"], ["/mein-plan", "Mein Plan"]]
@@ -12,6 +12,7 @@ export function Nav({ name, role, unread, openRequests = 0 }: { name: string; ro
         ? [["/pruefung", "Prüfung"], ["/mein-plan", "Veröffentlichter Plan"]]
         : [["/mein-plan", "Mein Plan"]];
   links.push(["/urlaub", "Urlaub"]);
+  if (role === "EMPLOYEE") links.push(["/tausch", openSwaps ? `Tausch (${openSwaps})` : "Tausch"]);
   if (role === "PLANNER" || role === "ADMIN" || role === "PDL") links.push(["/antraege", openRequests ? `Anträge (${openRequests})` : "Anträge"]);
   links.push(["/kalender", "Kalender"], ["/benachrichtigungen", unread ? `Mitteilungen (${unread})` : "Mitteilungen"]);
   return (

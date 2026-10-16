@@ -3,7 +3,8 @@
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, deliverPendingNotifications, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError } from "@dienstplan/db";
+import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, deliverPendingNotifications, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
+  createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError } from "@dienstplan/db";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 
 export async function loginAction(_: string | null, form: FormData): Promise<string | null> {
@@ -121,4 +122,31 @@ export async function applyLeaveAction(id: string, month: string) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await leaveGuard("/planer", () => applyPendingLeave(id, month, me.id));
   revalidatePath("/planer");
+}
+
+/** Same pattern as leaveGuard: user-facing SwapErrors become a message on the page, anything else is a real error. */
+async function swapGuard(back: string, fn: () => Promise<unknown>) {
+  let err: string | null = null;
+  try { await fn(); } catch (e) { if (e instanceof SwapError) err = e.message; else throw e; }
+  await deliverPendingNotifications();
+  revalidatePath("/tausch"); revalidatePath("/antraege");
+  if (err) redirect(`${back}${back.includes("?") ? "&" : "?"}err=${encodeURIComponent(err)}`);
+}
+
+export async function createSwapAction(form: FormData) {
+  const me = await requireUser(["EMPLOYEE"]);
+  const date = String(form.get("date") ?? "");
+  const partnerId = String(form.get("partner") ?? "") || null;
+  // radio value "none" = hand over without getting a shift back
+  const pd = String(form.get("partnerDate") ?? "");
+  await swapGuard(`/tausch/neu?date=${date}${partnerId ? `&with=${partnerId}` : ""}`, () => createSwap(me.id, { date, partnerId, partnerDate: pd && pd !== "none" ? pd : null, note: String(form.get("note") ?? "") }));
+  redirect("/tausch?ok=1");
+}
+export async function acceptSwapAction(id: string) { const me = await requireUser(["EMPLOYEE"]); await swapGuard("/tausch", () => acceptSwap(id, me.id)); }
+export async function declineSwapAction(id: string) { const me = await requireUser(["EMPLOYEE"]); await swapGuard("/tausch", () => declineSwap(id, me.id)); }
+export async function cancelSwapAction(id: string) { const me = await requireUser(["EMPLOYEE"]); await swapGuard("/tausch", () => cancelSwap(id, me.id)); }
+export async function decideSwapAction(id: string, decision: "APPROVED" | "REJECTED", form: FormData) {
+  const me = await requireUser(["PLANNER", "ADMIN"]);
+  await swapGuard("/antraege", () => decideSwap(id, me.id, decision, String(form.get("comment") ?? "")));
+  revalidatePath("/mein-plan");
 }
