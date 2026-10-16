@@ -1,5 +1,5 @@
 "use client";
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { logoutAction } from "@/app/actions";
 import { unsubscribeHere } from "@/lib/browserPush";
 
@@ -7,15 +7,18 @@ import { unsubscribeHere } from "@/lib/browserPush";
 export function LogoutButton() {
   const form = useRef<HTMLFormElement>(null);
   const done = useRef(false);
+  const [busy, setBusy] = useState(false);
   return (
     <form ref={form} action={logoutAction} onSubmit={async (e) => {
-      if (done.current) return;
+      if (done.current) return; // second pass: let the real logout go through
       e.preventDefault();
-      await unsubscribeHere();
+      if (busy) return; // ignore double clicks
+      setBusy(true);
+      await unsubscribeHere(3000); // bounded: logging out must never hang on push
       done.current = true;
       form.current?.requestSubmit();
     }}>
-      <button className="btn-ghost !py-1.5">Abmelden</button>
+      <button className="btn-ghost !py-1.5" disabled={busy} aria-busy={busy}>{busy ? "Abmelden …" : "Abmelden"}</button>
     </form>
   );
 }

@@ -8,6 +8,8 @@ const CHUNK = 100;
 const timeoutMs = () => Number(process.env.PUSH_TIMEOUT_MS ?? 10_000);
 /** How long a delivery run may hold a notification; if the process dies, the next run takes over after this. */
 const LEASE = "15 minutes";
+/** A run stops starting new sends after this, so it always finishes well inside its lease (no double sends). */
+const runBudgetMs = () => Number(process.env.PUSH_RUN_BUDGET_MS ?? 8 * 60_000);
 const BATCH = 200;
 const WEB_CONCURRENCY = 10;
 
@@ -50,9 +52,9 @@ export const webPushConfigured = () => { const v = vapidConfig(); return !!(v.su
 export function classifyPushStatus(code: number | undefined): WebResult {
   if (code === undefined) return "error"; // network error or timeout
   if (code >= 200 && code < 300) return "ok";
-  if ([400, 403, 404, 410].includes(code)) return "gone"; // malformed, wrong VAPID key (e.g. after rotation), or unsubscribed
+  if ([403, 404, 410].includes(code)) return "gone"; // subscription made with another VAPID key (e.g. after rotation), or unsubscribed
   if (code === 429 || code >= 500) return "error";
-  return "failed"; // e.g. 413: this message will never fit, but the subscription is fine
+  return "failed"; // 400/401/413: our request was rejected (e.g. broken VAPID setup); keep the subscription, do not retry
 }
 
 /** Web Push sender from the VAPID settings, or null when Web Push is not configured. */
@@ -67,16 +69,20 @@ export function webPushSender(): WebSender | null {
       });
       return "ok";
     } catch (e) {
-      return classifyPushStatus((e as { statusCode?: number }).statusCode);
+      const code = (e as { statusCode?: number }).statusCode;
+      const r = classifyPushStatus(code);
+      // problems on our side must be visible to operators (e.g. a mistyped VAPID key would otherwise fail silently)
+      if (r === "failed" || code === undefined) console.error(`web push to ${new URL(t.endpoint).host} failed: ${code ?? ""} ${(e as Error).message}`.trim());
+      return r;
     }
   };
 }
 
 /** Runs `fn` over `items` with at most `limit` in flight. */
-async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>, until = Infinity) {
   let next = 0;
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) await fn(items[next++]!);
+    while (next < items.length && Date.now() < until) await fn(items[next++]!);
   }));
 }
 
@@ -92,17 +98,18 @@ export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webS
   const retry = new Set<string>();
   const delivered = new Set<string>();
   let completed = false;
+  const until = Date.now() + runBudgetMs();
   try {
     const claimed = await prisma.$queryRaw<{ id: string }[]>`
-      UPDATE "Notification" SET "pushClaimedUntil" = now() + ${LEASE}::interval
+      UPDATE "Notification" SET "pushClaimedUntil" = (now() AT TIME ZONE 'UTC') + ${LEASE}::interval
       WHERE id IN (
         SELECT id FROM "Notification"
-        WHERE "pushAttemptedAt" IS NULL AND ("pushClaimedUntil" IS NULL OR "pushClaimedUntil" < now())
-          AND "createdAt" > now() - interval '24 hours'
+        WHERE "pushAttemptedAt" IS NULL AND ("pushClaimedUntil" IS NULL OR "pushClaimedUntil" < (now() AT TIME ZONE 'UTC'))
+          AND "createdAt" > (now() AT TIME ZONE 'UTC') - interval '24 hours'
         ORDER BY "createdAt" LIMIT ${BATCH}
         FOR UPDATE SKIP LOCKED
       )
-      RETURNING id`;
+      RETURNING id`; // Prisma stores timestamps as UTC without a zone: compare in UTC, whatever the server's TimeZone setting
     claimedIds = claimed.map((c) => c.id);
     if (claimedIds.length === 0) return result;
     const pending = await prisma.notification.findMany({ where: { id: { in: claimedIds } }, include: { user: { include: { devices: true } } } });
@@ -121,6 +128,7 @@ export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webS
     );
     for (let i = 0; i < messages.length; i += CHUNK) {
       const chunk = messages.slice(i, i + CHUNK);
+      if (Date.now() >= until) { chunk.forEach((m) => retry.add(m.notificationId)); continue; } // out of time: next run
       try {
         const res = await fetchImpl(EXPO_URL(), {
           method: "POST",
@@ -151,7 +159,9 @@ export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webS
       const jobs = pending.flatMap((n) => !n.user.pushEnabled ? [] : n.user.devices
         .filter((d) => d.platform === "WEB" && d.p256dh && d.auth)
         .map((d) => ({ n, d })));
+      const started = new Set<string>();
       await pool(jobs, WEB_CONCURRENCY, async ({ n, d }) => {
+        started.add(`${n.id}|${d.id}`);
         if (!isAllowedPushEndpoint(d.token)) { dead.add(d.id); return; } // stored before the allowlist existed: never contact it
         let r: WebResult;
         try {
@@ -163,7 +173,8 @@ export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webS
           if (r === "gone") dead.add(d.id);
           else if (r === "error") retry.add(n.id);
         }
-      });
+      }, until);
+      for (const { n, d } of jobs) if (!started.has(`${n.id}|${d.id}`)) retry.add(n.id); // not reached before the deadline: next run
     }
 
     if (delivered.size) await prisma.notification.updateMany({ where: { id: { in: [...delivered] } }, data: { deliveredAt: new Date() } });

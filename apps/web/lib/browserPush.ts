@@ -28,14 +28,17 @@ export async function registerHere(sub: PushSubscription) {
   return res.ok;
 }
 
-/** Removes this browser's subscription on the server and in the browser. Never throws. */
-export async function unsubscribeHere() {
-  try {
+/** Removes this browser's subscription on the server and in the browser. Never throws, never takes longer than `maxMs`. */
+export async function unsubscribeHere(maxMs = 3000) {
+  const work = (async () => {
     const sub = await currentSubscription();
     if (!sub) return;
-    await fetch("/api/push/register", { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }) }).catch(() => {});
-    await sub.unsubscribe();
-  } catch { /* logging out must never be blocked by push */ }
+    await fetch("/api/push/register", {
+      method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ endpoint: sub.endpoint }), signal: AbortSignal.timeout(maxMs),
+    }).catch(() => {});
+    await sub.unsubscribe(); // even if the server did not answer: this browser stops receiving
+  })().catch(() => {});
+  await Promise.race([work, new Promise((ok) => setTimeout(ok, maxMs))]);
 }
 
 /**
@@ -43,6 +46,15 @@ export async function unsubscribeHere() {
  * - subscription made with an old key: dropped (it can never receive anything again)
  * - otherwise: re-registered for the current person (on a shared PC this takes it over from whoever used the browser before)
  */
+let pending: { key: string; result: Promise<boolean> } | null = null;
+
+/** syncHere, shared by everything on the page that needs it (one request per page load); `fresh` forces a new sync. */
+export function syncOnce(publicKey: string, fresh = false): Promise<boolean> {
+  if (!fresh && pending?.key === publicKey) return pending.result;
+  pending = { key: publicKey, result: syncHere(publicKey).catch(() => false) };
+  return pending.result;
+}
+
 export async function syncHere(publicKey: string): Promise<boolean> {
   const sub = await currentSubscription();
   if (!sub) return false;

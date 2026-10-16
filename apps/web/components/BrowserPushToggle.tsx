@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { base64UrlToBytes, currentSubscription, pushSupported, registerHere, syncHere, unsubscribeHere } from "@/lib/browserPush";
+import { base64UrlToBytes, currentSubscription, pushSupported, registerHere, syncOnce, unsubscribeHere } from "@/lib/browserPush";
 
 type State = "checking" | "unsupported" | "off" | "on" | "denied" | "busy" | "failed";
 
@@ -12,7 +12,7 @@ export function BrowserPushToggle({ publicKey }: { publicKey: string }) {
     if (Notification.permission === "denied") return setState("denied");
     // "on" only if this browser's subscription is valid and registered for the person signed in now
     navigator.serviceWorker.register("/sw.js", { scope: "/" })
-      .then(() => syncHere(publicKey))
+      .then(() => syncOnce(publicKey))
       .then((on) => setState(on ? "on" : "off"))
       .catch(() => setState("unsupported"));
   }, [publicKey]);
@@ -20,7 +20,9 @@ export function BrowserPushToggle({ publicKey }: { publicKey: string }) {
   async function enable() {
     setState("busy");
     try {
-      if ((await Notification.requestPermission()) !== "granted") return setState("denied");
+      const permission = await Notification.requestPermission();
+      if (permission === "denied") return setState("denied");
+      if (permission !== "granted") return setState("off"); // prompt closed without a choice: just offer it again
       const reg = await navigator.serviceWorker.ready;
       // a leftover subscription (e.g. made with an old server key) would make subscribe() fail, so start clean
       await (await currentSubscription())?.unsubscribe().catch(() => {});

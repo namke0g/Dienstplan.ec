@@ -198,9 +198,9 @@ describe("review fixes", () => {
 
   it("#4 push service answers are classified: dead subscriptions removed, temporary ones retried, others dropped", async () => {
     expect([200, 201].map(classifyPushStatus)).toEqual(["ok", "ok"]);
-    expect([400, 403, 404, 410].map(classifyPushStatus)).toEqual(["gone", "gone", "gone", "gone"]);
+    expect([403, 404, 410].map(classifyPushStatus)).toEqual(["gone", "gone", "gone"]);
     expect([429, 500, 503, undefined].map(classifyPushStatus)).toEqual(["error", "error", "error", "error"]);
-    expect(classifyPushStatus(413)).toBe("failed");
+    expect([400, 401, 413].map(classifyPushStatus)).toEqual(["failed", "failed", "failed"]); // our request was rejected: keep the subscription
 
     await registerWebPush(anna, sub("rotated-key")); // e.g. VAPID keys were changed: 403 forever
     const n = await notify(anna);
@@ -261,3 +261,52 @@ describe("review fixes", () => {
 });
 
 async function adminId() { return (await prisma.user.findUniqueOrThrow({ where: { email: "admin@demo.de" } })).id; }
+
+describe("second review fixes", () => {
+  it("#4 a run stops starting new sends at its deadline and leaves the rest for the next run (never outliving its lease)", async () => {
+    process.env.PUSH_RUN_BUDGET_MS = "250";
+    try {
+      for (let i = 0; i < 30; i++) await registerWebPush(anna, sub(`d${i}`));
+      const n = await notify(anna);
+      const slow = recorder();
+      const send: WebSender = async (t, m) => { await new Promise((ok) => setTimeout(ok, 100)); return slow.send(t, m); };
+      const t0 = Date.now();
+      await deliverPendingNotifications(noExpo, send);
+      expect(Date.now() - t0).toBeLessThan(1000); // 30 browsers × 100 ms / 10 parallel would be 300 ms+; stopped near 250 ms
+      // only 10 browsers are kept per person; the run reached some of them, so the message counts as delivered
+      expect((await prisma.notification.findUniqueOrThrow({ where: { id: n.id } })).deliveredAt).not.toBeNull();
+    } finally { delete process.env.PUSH_RUN_BUDGET_MS; }
+  });
+
+  it("#4 notifications whose turn did not come before the deadline are released, not marked done", async () => {
+    process.env.PUSH_RUN_BUDGET_MS = "1";
+    try {
+      await registerWebPush(anna, sub("late"));
+      const n = await notify(anna);
+      await new Promise((ok) => setTimeout(ok, 5));
+      await deliverPendingNotifications(noExpo, recorder().send);
+      const after = await prisma.notification.findUniqueOrThrow({ where: { id: n.id } });
+      expect(after.pushAttemptedAt).toBeNull();
+      expect(after.pushClaimedUntil).toBeNull();
+    } finally { delete process.env.PUSH_RUN_BUDGET_MS; }
+  });
+
+  it("#6 claiming and leases work the same whatever time zone the database server is set to", async () => {
+    await prisma.$executeRawUnsafe(`ALTER ROLE dienstplan SET timezone = 'Etc/GMT-14'`); // UTC+14, the most extreme zone
+    await prisma.$disconnect(); // new connections pick up the setting
+    try {
+      expect((await prisma.$queryRawUnsafe<{ tz: string }[]>("SELECT current_setting('TimeZone') AS tz"))[0]!.tz).toBe("Etc/GMT-14");
+      await registerWebPush(anna, sub("tz"));
+      const recent = await notify(anna, { title: "11 hours old" }); // still inside the 24 h window
+      await prisma.notification.update({ where: { id: recent.id }, data: { createdAt: new Date(Date.now() - 11 * 3_600_000) } });
+      const leased = await notify(anna, { title: "lease running" }); // claimed 5 minutes ago by a run that is still working
+      await prisma.notification.update({ where: { id: leased.id }, data: { pushClaimedUntil: new Date(Date.now() + 10 * 60_000) } });
+      const r = recorder();
+      await deliverPendingNotifications(noExpo, r.send);
+      expect(r.calls.map((c) => c.msg.title)).toEqual(["11 hours old"]); // bug: in UTC+14 the first looked 25 h old and the lease looked expired
+    } finally {
+      await prisma.$executeRawUnsafe(`ALTER ROLE dienstplan RESET timezone`);
+      await prisma.$disconnect();
+    }
+  });
+});

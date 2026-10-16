@@ -125,3 +125,36 @@ test("a slow push service does not make anyone wait: the request answers first, 
   expect(took).toBeLessThan(2000); // the push service needs 3 s; before the fix the request waited for it
   await expect.poll(() => received.filter((x) => x.path === "/slow-pc").length, { timeout: 10_000 }).toBe(1); // and the push still arrives
 });
+
+test("closing the permission prompt without a choice does not claim notifications are blocked (#3)", async ({ page }) => {
+  await page.addInitScript(() => { Notification.requestPermission = async () => "default"; }); // user dismissed the prompt
+  await login(page, "anna@demo.de");
+  await page.goto("/benachrichtigungen");
+  await page.getByRole("button", { name: "In diesem Browser einschalten" }).click();
+  await expect(page.getByRole("button", { name: "In diesem Browser einschalten" })).toBeVisible(); // can simply try again
+  await expect(page.getByText(/blockiert/)).toHaveCount(0);
+});
+
+test("logging out never hangs on push clean-up, and a double click logs out once (#10)", async ({ page }) => {
+  // this browser has a push subscription (stubbed: headless browsers cannot subscribe to a real push service)
+  await page.addInitScript(() => {
+    const sub = { endpoint: "https://fcm.googleapis.com/fcm/send/stub", options: {}, toJSON: () => ({}), unsubscribe: async () => true };
+    const reg = { pushManager: { getSubscription: async () => sub } };
+    navigator.serviceWorker.getRegistration = (async () => reg) as unknown as typeof navigator.serviceWorker.getRegistration;
+  });
+  let deletes = 0;
+  await page.route("**/api/push/register", (route) => {
+    if (route.request().method() === "DELETE") { deletes++; return; } // the server never answers
+    return route.continue();
+  });
+  await login(page, "anna@demo.de");
+  const button = page.getByRole("button", { name: "Abmelden" });
+  const t0 = Date.now();
+  await button.click();
+  await page.getByRole("button", { name: /Abmelden/ }).click({ force: true, timeout: 1000 }).catch(() => {}); // impatient second click
+  await page.waitForURL(/\/login/, { timeout: 8000 });
+  expect(Date.now() - t0).toBeLessThan(6000); // gave up on the hanging request after about 3 s
+  expect(deletes).toBe(1);
+  await page.goto("/mein-plan");
+  await expect(page).toHaveURL(/\/login/); // really logged out
+});
