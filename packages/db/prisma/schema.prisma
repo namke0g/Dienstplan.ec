@@ -104,6 +104,8 @@ model User {
   swapsReceived SwapRequest[] @relation("SwapPartner")
   swapsDecided SwapRequest[] @relation("SwapDecider")
   entitlements LeaveEntitlement[]
+  sickReports  SickReport[] @relation("SickPerson")
+  sickReportsFiled SickReport[] @relation("SickReporter")
   /// set when the account was anonymised (left the organisation); personal data is gone, roster history stays
   anonymizedAt DateTime?
   adminActions UserAudit[] @relation("AuditActor")
@@ -342,4 +344,25 @@ model WardHoliday {
   name   String
 
   @@unique([wardId, date])
+}
+
+/// A sickness report (Krankmeldung): the days become sick days in the roster at once. No diagnosis is ever stored.
+model SickReport {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("SickPerson", fields: [userId], references: [id], onDelete: Cascade)
+  wardId      String
+  start       DateTime @db.Date
+  /// expected last sick day; moved on extension or early recovery
+  end         DateTime @db.Date
+  /// optional practical note (e.g. "eAU folgt"); never a diagnosis
+  note        String?
+  reportedById String
+  reportedBy  User     @relation("SickReporter", fields: [reportedById], references: [id])
+  createdAt   DateTime @default(now())
+  /// what the roster had on each sick day before, so early recovery can restore it: [{ date, shiftTypeId|null }]
+  replaced    Json     @default("[]")
+
+  @@index([wardId, end])
+  @@index([userId, start])
 }

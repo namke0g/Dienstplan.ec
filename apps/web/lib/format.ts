@@ -1,7 +1,8 @@
+import { localToday } from "@dienstplan/core";
 export const WEEKDAYS = ["So", "Mo", "Di", "Mi", "Do", "Fr", "Sa"];
 export const wd = (ymd: string) => new Date(`${ymd}T00:00:00Z`).getUTCDay();
 export const isWeekend = (ymd: string) => [0, 6].includes(wd(ymd));
-export const monthParam = (m?: string) => (m && /^\d{4}-\d{2}$/.test(m) ? m : new Date().toISOString().slice(0, 7));
+export const monthParam = (m?: string) => (m && /^\d{4}-\d{2}$/.test(m) ? m : localToday().slice(0, 7)); // the ward's current month
 export const shiftMonth = (m: string, delta: number) => {
   const [y, mo] = m.split("-").map(Number) as [number, number];
   return new Date(Date.UTC(y, mo - 1 + delta, 1)).toISOString().slice(0, 7);

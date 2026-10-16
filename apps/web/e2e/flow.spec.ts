@@ -98,7 +98,7 @@ test("sick leave is only visible to the person, planner and PDL; others see 'Abw
   await login(page, "anna@demo.de");
   await page.goto("/mein-plan");
   await expect(cell("Ben Schmidt", "Abwesend")).toBeVisible();
-  await expect(page.getByText("Krank")).toHaveCount(0);
+  await expect(page.getByText(/Krank \(/)).toHaveCount(0); // the sick shift types (the nav link "Krank melden" is fine)
 
   await login(page, "ben@demo.de");
   await page.goto("/mein-plan");

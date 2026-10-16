@@ -1,3 +1,4 @@
+import { localToday } from "@dienstplan/core";
 import { prisma, toDate, toYmd, daysInMonth } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
 import { ABSENT_TYPE, canSeeSick, maskSick, monthHolidays, snapshotOf, toGridTypes, wardContext, planFor } from "@/lib/roster";
@@ -46,7 +47,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
             <div className="card"><div className="text-xs text-slate-500">Meine Dienste</div><div className="text-2xl font-semibold">{workMine.length}</div>{absSummary && <div className="mt-1 text-xs text-slate-500">{absSummary}</div>}</div>
             <div className="card"><div className="text-xs text-slate-500">Geplante Stunden (brutto)</div><div className="text-2xl font-semibold">{hours.toFixed(1).replace(".0", "")} h</div></div>
             <div className="card"><div className="text-xs text-slate-500">Nächster Dienst</div>
-              <div className="text-lg font-semibold">{(() => { const today = new Date().toISOString().slice(0, 10); const n = [...mine.keys()].sort().find((d) => d >= today && mine.get(d)!.kind === "WORK"); const t = n && mine.get(n); return n && t ? `${n.slice(8)}.${n.slice(5, 7)}. ${t.name}` : "–"; })()}</div></div>
+              <div className="text-lg font-semibold">{(() => { const today = localToday(); const n = [...mine.keys()].sort().find((d) => d >= today && mine.get(d)!.kind === "WORK"); const t = n && mine.get(n); return n && t ? `${n.slice(8)}.${n.slice(5, 7)}. ${t.name}` : "–"; })()}</div></div>
           </div>
 
           <section className="space-y-2">

@@ -142,6 +142,7 @@ export async function anonymizeUser(actorId: string, userId: string) {
     await tx.calendarToken.deleteMany({ where: { userId: t.id } });
     await tx.notification.deleteMany({ where: { userId: t.id } });
     await tx.leaveEntitlement.deleteMany({ where: { userId: t.id } });
+    await tx.sickReport.deleteMany({ where: { userId: t.id } }); // health data: gone with the person (the roster keeps its K days)
     await tx.leaveRequest.updateMany({ where: { userId: t.id }, data: { note: null, decisionComment: null } });
     await tx.swapRequest.updateMany({ where: { OR: [{ requesterId: t.id }, { partnerId: t.id }] }, data: { note: null } });
     await tx.user.update({

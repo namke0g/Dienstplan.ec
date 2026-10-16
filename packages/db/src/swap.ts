@@ -1,13 +1,14 @@
-import { newViolations, swapChanges, SwapConflict, type Assignment, type CellChange, type SwapSpec, type Violation } from "@dienstplan/core";
+import { newViolations, swapChanges, SwapConflict, type Assignment, type CellChange, type SwapSpec, type Violation, localToday } from "@dienstplan/core";
 import type { Prisma, SwapStatus } from "@prisma/client";
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 import { actor, ForbiddenError, type Tx } from "./service";
+import { writeRosterCells } from "./rosterCells";
 import type { SnapshotShift } from "./service";
 
 export class SwapError extends Error {}
 
-const todayYmd = () => new Date().toISOString().slice(0, 10);
+const todayYmd = () => localToday(); // the ward's local date, not UTC
 const dmy = (d: string) => d.split("-").reverse().join(".");
 const ACTIVE: SwapStatus[] = ["OPEN", "PENDING_PARTNER", "PENDING_PLANNER"];
 
@@ -148,30 +149,17 @@ export async function cancelSwap(id: string, userId: string) {
 
 /** Writes final cell states into Shift rows and the published snapshot; refuses if unpublished edits touch those cells. */
 async function writeCells(tx: Tx, wardId: string, changes: CellChange[], actorId: string, swapId: string) {
-  const byMonth = new Map<string, CellChange[]>();
-  for (const c of changes) byMonth.set(c.date.slice(0, 7), [...(byMonth.get(c.date.slice(0, 7)) ?? []), c]);
-  for (const [month, cells] of byMonth) {
+  for (const month of new Set(changes.map((c) => c.date.slice(0, 7)))) {
     const plan = await tx.plan.findUnique({ where: { wardId_month: { wardId, month: toDate(`${month}-01`) } } });
     if (!plan || plan.publishedSnapshot == null) throw new SwapError("Für diesen Monat gibt es keinen veröffentlichten Plan.");
-    let snap = (plan.publishedSnapshot as unknown as SnapshotShift[]).slice();
-    for (const c of cells) {
-      const row = await tx.shift.findUnique({ where: { planId_userId_date: { planId: plan.id, userId: c.userId, date: toDate(c.date) } } });
-      const inSnap = snap.find((s) => s.userId === c.userId && s.date === c.date);
-      if ((row?.shiftTypeId ?? null) !== (inSnap?.shiftTypeId ?? null)) throw new SwapError("Der Plan enthält für diesen Tag noch ungeprüfte Änderungen. Bitte zuerst den Plan abschließen.");
-      snap = snap.filter((s) => s !== inSnap);
-      if (c.shiftTypeId === null) {
-        if (row) await tx.shift.delete({ where: { id: row.id } });
-      } else if (row) {
-        await tx.shift.update({ where: { id: row.id }, data: { shiftTypeId: c.shiftTypeId, sequence: { increment: 1 } } });
-        snap.push({ id: row.id, userId: c.userId, date: c.date, shiftTypeId: c.shiftTypeId, sequence: row.sequence + 1 });
-      } else {
-        const created = await tx.shift.create({ data: { planId: plan.id, userId: c.userId, date: toDate(c.date), shiftTypeId: c.shiftTypeId } });
-        snap.push({ id: created.id, userId: c.userId, date: c.date, shiftTypeId: c.shiftTypeId, sequence: 0 });
-      }
-    }
-    await tx.plan.update({ where: { id: plan.id }, data: { publishedSnapshot: snap as unknown as Prisma.InputJsonValue } });
-    await tx.auditLog.create({ data: { planId: plan.id, actorId, action: "SWAP_APPLIED", detail: { swapId, cells: cells.map((c) => ({ userId: c.userId, date: c.date, shiftTypeId: c.shiftTypeId })) } } });
   }
+  await writeRosterCells(tx, wardId, changes.map((c) => ({
+    userId: c.userId, date: c.date,
+    value: (now) => {
+      if (now.draft !== now.published) throw new SwapError("Der Plan enthält für diesen Tag noch ungeprüfte Änderungen.");
+      return { draft: c.shiftTypeId, published: c.shiftTypeId };
+    },
+  })), { actorId, action: "SWAP_APPLIED", detail: { swapId, cells: changes.map((c) => ({ userId: c.userId, date: c.date, shiftTypeId: c.shiftTypeId })) } });
 }
 
 export async function decideSwap(id: string, actorId: string, decision: "APPROVED" | "REJECTED", comment?: string) {

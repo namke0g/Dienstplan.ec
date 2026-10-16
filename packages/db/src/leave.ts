@@ -1,5 +1,5 @@
 import type { Role } from "@prisma/client";
-import { eachDay, monthsBetween, rangesOverlap, validateLeaveRange } from "@dienstplan/core";
+import { eachDay, monthsBetween, rangesOverlap, validateLeaveRange, localToday } from "@dienstplan/core";
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 import { actor, applyShift, ForbiddenError, loadState, type Tx } from "./service";
@@ -7,7 +7,7 @@ import { assertEnoughLeave } from "./balance";
 
 const DECIDERS: Role[] = ["PLANNER", "ADMIN", "PDL"];
 const REQUESTABLE = ["VACATION", "SPECIAL_LEAVE"] as const;
-const todayYmd = () => new Date().toISOString().slice(0, 10);
+const todayYmd = () => localToday(); // the ward's local date, not UTC
 
 export class LeaveError extends Error {}
 
@@ -50,7 +50,10 @@ export async function cancelLeave(id: string, userId: string) {
 async function applyMonth(tx: Tx, req: { id: string; userId: string; shiftTypeId: string; start: Date; end: Date }, month: string, wardId: string, actorId: string) {
   const plan = await tx.plan.upsert({ where: { wardId_month: { wardId, month: toDate(`${month}-01`) } }, update: {}, create: { wardId, month: toDate(`${month}-01`) } });
   let replaced = 0;
-  for (const d of eachDay(toYmd(req.start), toYmd(req.end)).filter((x) => x.startsWith(month))) {
+  const days = eachDay(toYmd(req.start), toYmd(req.end)).filter((x) => x.startsWith(month));
+  // a reported sickness stays: leave does not overwrite sick days (the days count as sick, not as leave)
+  const sick = new Set((await tx.shift.findMany({ where: { planId: plan.id, userId: req.userId, date: { in: days.map(toDate) }, shiftType: { kind: "SICK" } }, select: { date: true } })).map((r) => toYmd(r.date)));
+  for (const d of days.filter((x) => !sick.has(x))) {
     const before = await applyShift(tx, plan.id, req.userId, actorId, d, req.shiftTypeId);
     if (before && before.shiftTypeId !== req.shiftTypeId) replaced++;
   }

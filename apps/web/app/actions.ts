@@ -8,7 +8,7 @@ import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLe
   createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
   setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError, ForbiddenError,
   createManagedUser, updateManagedUser, setManagedActive, resetManagedPassword, anonymizeUser, type Role,
-  updateWardSettings, addWardHoliday, removeWardHoliday } from "@dienstplan/db";
+  updateWardSettings, addWardHoliday, removeWardHoliday, createSickReport, extendSickReport, endSickReport, SickError } from "@dienstplan/db";
 import { deliverSoon } from "@/lib/deliver";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 import { clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess } from "@/lib/rateLimit";
@@ -279,4 +279,26 @@ export async function addWardHolidayAction(form: FormData) {
 export async function removeWardHolidayAction(id: string) {
   const me = await requireUser(["ADMIN"]);
   await settingsBack(() => removeWardHoliday(me.id, id), "Freier Tag entfernt.");
+}
+
+async function sickBack(fn: () => Promise<unknown>, ok: string): Promise<never> {
+  let err: string | null = null;
+  try { await fn(); } catch (e) { if (e instanceof SickError || e instanceof ForbiddenError) err = e.message; else throw e; }
+  if (!err) deliverSoon();
+  revalidatePath("/", "layout");
+  redirect(err ? `/krank?err=${encodeURIComponent(err)}` : `/krank?ok=${encodeURIComponent(ok)}`);
+}
+export async function createSickAction(form: FormData) {
+  const me = await requireUser();
+  const userId = String(form.get("userId") ?? "") || me.id;
+  await sickBack(() => createSickReport(me.id, { userId, start: String(form.get("start") ?? ""), end: String(form.get("end") ?? ""), note: String(form.get("note") ?? "") }),
+    userId === me.id ? "Krankmeldung gesendet. Gute Besserung!" : "Krankmeldung erfasst.");
+}
+export async function extendSickAction(id: string, form: FormData) {
+  const me = await requireUser();
+  await sickBack(() => extendSickReport(me.id, id, String(form.get("end") ?? "")), "Krankmeldung verlängert.");
+}
+export async function endSickAction(id: string, form: FormData) {
+  const me = await requireUser();
+  await sickBack(() => endSickReport(me.id, id, String(form.get("backOn") ?? "")), "Gespeichert. Die vorher geplanten Dienste stehen wieder im Plan.");
 }

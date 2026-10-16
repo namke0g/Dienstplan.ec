@@ -1,4 +1,4 @@
-import { computeBalance, countDays, eachDay, type Balance, type CountMode } from "@dienstplan/core";
+import { computeBalance, countDays, eachDay, type Balance, type CountMode, localToday } from "@dienstplan/core";
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 import { actor, type Tx } from "./service";
@@ -6,7 +6,7 @@ import { leaveFreeDays } from "./holidays";
 
 export class BalanceError extends Error {}
 
-const todayYmd = () => new Date().toISOString().slice(0, 10);
+const todayYmd = () => localToday(); // the ward's local date, not UTC
 const yearRange = (year: number) => ({ gte: toDate(`${year}-01-01`), lte: toDate(`${year}-12-31`) });
 
 export interface BalanceResult extends Balance { configured: true; mode: CountMode; carryOverExpires: string | null }
