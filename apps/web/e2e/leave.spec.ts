@@ -87,6 +87,8 @@ test("approved leave for a published month is held until the planner applies it"
   await login(page, "planer@demo.de");
   await page.goto("/antraege");
   await page.getByRole("form", { name: "Antrag Eva Richter" }).getByRole("button", { name: "Genehmigen" }).click();
+  // wait until the approval is done; navigating away right after the click can abort the server action
+  await expect(page.getByRole("form", { name: "Antrag Eva Richter" })).toHaveCount(0);
   await page.goto(`/planer?m=${ym}`);
   await expect(page.getByText("noch nicht im Plan stehen")).toBeVisible();
   await expect(page.getByRole("button", { name: `Eva Richter, ${d}: Urlaub` })).toHaveCount(0);
