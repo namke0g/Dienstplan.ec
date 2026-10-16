@@ -11,9 +11,12 @@
     "deploy": "prisma migrate deploy",
     "seed": "tsx prisma/seed.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "admin": "tsx prisma/admin.ts"
   },
-  "prisma": { "seed": "tsx prisma/seed.ts" },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "dependencies": {
     "@dienstplan/core": "workspace:*",
     "@prisma/client": "^6.0.0",

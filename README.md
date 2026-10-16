@@ -14,6 +14,7 @@ Dienstplanung für Stationen: Der Plan wird von der Planung erstellt und geht er
 | Urlaubs-/Abwesenheitsanträge (Urlaub, unbezahlt, Sonderurlaub): Mitarbeitende beantragen im Portal und in der App, Planung oder PDL entscheidet; genehmigt wird automatisch in den Dienstplan geschrieben | ✅ |
 | Diensttausch: Angebot an alle oder Tausch/Abgabe an eine Kollegin/einen Kollegen (auch am selben Tag); Regelprüfung (Ruhezeit, Arbeitstage) vorab und bei Freigabe; Planung gibt frei, der veröffentlichte Plan wird direkt geändert (keine erneute PDL/Betriebsrat-Genehmigung), Audit-Log | ✅ |
 | Urlaubskonto: Jahresanspruch, Übertrag mit Verfallsdatum, Korrektur; genommen/geplant aus dem Dienstplan, offene Anträge werden mitgezählt, Anträge über dem Rest werden abgelehnt, Jahreswechsel-Übernahme, Anzeige im Portal und in der App | ✅ |
+| Betrieb: Docker-Compose-Stack (Postgres, App, HTTPS-Proxy, Backups), Health-Check, Anmeldebegrenzung, Passwort ändern, Bootstrap-/Benutzer-CLI, CI | ✅ siehe [DEPLOYMENT.md](DEPLOYMENT.md) |
 | Push-Benachrichtigungen iOS/Android (Expo → APNs/FCM): Plan veröffentlicht, Dienständerung (kurzfristig = hohe Priorität), Prüfung angefordert, Entscheidung | ✅ |
 | Mobile App (Expo/React Native): Login, Mein Plan, Team, Mitteilungen, Kalender-Abo, Offline-Cache, Push an/aus | ✅ (noch nicht auf echtem Gerät getestet) |
 | Web Push (PWA) | ⏳ später |
@@ -27,6 +28,8 @@ Dienstplanung für Stationen: Der Plan wird von der Planung erstellt und geht er
 - `packages/db` – Prisma/PostgreSQL-Schema, Service-Schicht (Rollenprüfung, Audit-Log, Benachrichtigungen), Seed
 
 Mitarbeitende sehen immer den **zuletzt veröffentlichten Snapshot**. Änderungen an einem veröffentlichten Plan erzeugen eine neue Version, die erst nach erneuter Genehmigung sichtbar wird.
+
+**Betrieb auf einem Server (Docker, HTTPS, Backups, App-Release): siehe [DEPLOYMENT.md](DEPLOYMENT.md).**
 
 ## Lokal starten
 ```bash

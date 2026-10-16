@@ -6,3 +6,4 @@ export * from "./push";
 export * from "./leave";
 export * from "./swap";
 export * from "./balance";
+export * from "./admin";
