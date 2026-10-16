@@ -1,0 +1,31 @@
+import Link from "next/link";
+import type { Role } from "@dienstplan/db";
+import { logoutAction } from "@/app/actions";
+
+const ROLE_LABEL: Record<Role, string> = { ADMIN: "Admin", PLANNER: "Planer:in", PDL: "PDL", BETRIEBSRAT: "Betriebsrat", EMPLOYEE: "Mitarbeiter:in" };
+
+export function Nav({ name, role, unread }: { name: string; role: Role; unread: number }) {
+  const links: [string, string][] =
+    role === "PLANNER" || role === "ADMIN"
+      ? [["/planer", "Planung"], ["/mein-plan", "Mein Plan"]]
+      : role === "PDL" || role === "BETRIEBSRAT"
+        ? [["/pruefung", "Prüfung"], ["/mein-plan", "Veröffentlichter Plan"]]
+        : [["/mein-plan", "Mein Plan"]];
+  links.push(["/kalender", "Kalender"], ["/benachrichtigungen", unread ? `Mitteilungen (${unread})` : "Mitteilungen"]);
+  return (
+    <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
+      <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3">
+        <span className="font-semibold tracking-tight">Dienstplan</span>
+        <nav className="order-last flex w-full gap-1 overflow-x-auto text-sm sm:order-none sm:w-auto sm:flex-1">
+          {links.map(([href, label]) => (
+            <Link key={href} href={href} className="whitespace-nowrap rounded-lg px-3 py-1.5 hover:bg-slate-100 dark:hover:bg-slate-800">{label}</Link>
+          ))}
+        </nav>
+        <div className="flex items-center gap-3 text-sm">
+          <span className="hidden sm:inline text-slate-500">{name} · {ROLE_LABEL[role]}</span>
+          <form action={logoutAction}><button className="btn-ghost !py-1.5">Abmelden</button></form>
+        </div>
+      </div>
+    </header>
+  );
+}
