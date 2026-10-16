@@ -20,7 +20,8 @@ Dienstplanung für Stationen: Der Plan wird von der Planung erstellt und geht er
 | Mobile App (Expo/React Native): Login, Mein Plan, Team, Mitteilungen, Kalender-Abo, Offline-Cache, Push an/aus | ✅ (noch nicht auf echtem Gerät getestet) |
 | Browser-Push (Web Push, VAPID): allgemeiner Text für geteilte Bildschirme, Austragen beim Abmelden, Wiederholung bei Ausfall | ✅ |
 | Feiertage je Bundesland (inkl. Ostertermine, Änderungen seit 2017) und örtliche freie Tage: im Dienstplan markiert, im Urlaubskonto nicht abgezogen | ✅ |
-| Krankmeldung durch Mitarbeitende, Storno genehmigter Anträge | ⏳ später |
+| Krankmeldung (Portal und App, oder durch die Planung nach Anruf): sofort im Plan, Planung erfährt, welche Dienste ausfallen; verlängern, früher gesund (geplante Dienste kommen zurück), zurücknehmen; Urlaubstage werden zurückgebucht | ✅ |
+| Storno genehmigter Urlaubsanträge | ⏳ später |
 | Zeiterfassung, Druck/PDF, KIS/DATEV | ⏳ später |
 
 ## Aufbau

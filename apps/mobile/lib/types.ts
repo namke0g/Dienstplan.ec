@@ -28,3 +28,4 @@ export interface Balance {
   total?: number; remaining?: number; entitlement?: number; carryOver?: number; adjustment?: number; taken?: number; planned?: number;
   approvedHeld?: number; requested?: number; forfeited?: number; expiring?: number; carryOverExpires?: string | null; mode?: "WEEKDAYS" | "ALL_DAYS";
 }
+export interface SickReportItem { id: string; userId: string; name: string; start: string; end: string; note: string | null; reportedBy: string; selfReported: boolean; active: boolean }

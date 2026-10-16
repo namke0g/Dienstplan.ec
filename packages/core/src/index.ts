@@ -5,3 +5,4 @@ export * from "./leave";
 export * from "./swap";
 export * from "./balance";
 export * from "./holidays";
+export * from "./time";

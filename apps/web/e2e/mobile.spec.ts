@@ -1,3 +1,4 @@
+import { localToday } from "@dienstplan/core";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { createServer, type Server } from "node:http";
 import { execSync } from "node:child_process";
@@ -67,7 +68,7 @@ test("device registration, personal entries and push on publish", async ({ reque
   expect((await request.post("/api/mobile/devices", { ...anna, data: { token: "ExponentPushToken[anna-dead]", platform: "android" } })).status()).toBe(200);
 
   // personal entry round-trip, private to the owner
-  const created = await request.post("/api/mobile/personal", { ...anna, data: { date: new Date().toISOString().slice(0, 10), title: "Zahnarzt" } });
+  const created = await request.post("/api/mobile/personal", { ...anna, data: { date: localToday(), title: "Zahnarzt" } });
   expect(created.status()).toBe(201);
   const ben = await login(request, "ben@demo.de");
   const mine = await (await request.get("/api/mobile/plan", ben)).json();

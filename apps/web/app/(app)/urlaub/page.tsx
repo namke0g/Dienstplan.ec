@@ -1,3 +1,4 @@
+import { localToday } from "@dienstplan/core";
 import { getBalance, prisma, toYmd } from "@dienstplan/db";
 import { BalanceCard } from "@/components/BalanceCard";
 import { requireUser } from "@/lib/auth";
@@ -16,7 +17,7 @@ export default async function UrlaubPage({ searchParams }: { searchParams: Promi
     prisma.shiftType.findMany({ where: { wardId: me.wardId, kind: { in: ["VACATION", "SPECIAL_LEAVE"] } }, orderBy: [{ consumesLeave: "desc" }, { name: "asc" }] }),
     prisma.leaveRequest.findMany({ where: { userId: me.id }, orderBy: { start: "desc" }, include: { shiftType: true, decidedBy: { select: { name: true } } }, take: 50 }),
   ]);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localToday();
   const year = Number(today.slice(0, 4));
   const [bal, balNext] = await Promise.all([getBalance(me.id, year), getBalance(me.id, year + 1)]);
 

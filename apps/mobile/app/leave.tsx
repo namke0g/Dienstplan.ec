@@ -10,7 +10,7 @@ import type { Balance, LeaveItem, LeaveType } from "@/lib/types";
 
 const STATUS = { PENDING: ["Offen", "#f59e0b"], APPROVED: ["Genehmigt", "#10b981"], REJECTED: ["Abgelehnt", "#e11d48"], CANCELLED: ["Zurückgezogen", "#64748b"] } as const;
 const dmy = (d: string) => d.split("-").reverse().join(".");
-const today = () => new Date().toISOString().slice(0, 10);
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }; // local date, not UTC
 
 export default function Leave() {
   const t = useTheme();
