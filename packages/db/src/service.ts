@@ -11,14 +11,14 @@ import {
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 
-type Tx = Prisma.TransactionClient;
+export type Tx = Prisma.TransactionClient;
 
 export class ForbiddenError extends Error {}
 
-const PLAN_ROLES: Role[] = ["PLANNER", "ADMIN"];
+export const PLAN_ROLES: Role[] = ["PLANNER", "ADMIN"];
 export const SHORT_NOTICE_HOURS = 72;
 
-async function loadState(tx: Tx, planId: string): Promise<{ state: PlanState; wardId: string }> {
+export async function loadState(tx: Tx, planId: string): Promise<{ state: PlanState; wardId: string }> {
   const plan = await tx.plan.findUniqueOrThrow({ where: { id: planId }, include: { approvals: true } });
   const decisions: Record<Reviewer, Decision> = { PDL: "PENDING", BETRIEBSRAT: "PENDING" };
   for (const a of plan.approvals) {
@@ -31,7 +31,7 @@ async function audit(tx: Tx, planId: string, actorId: string | null, action: str
   await tx.auditLog.create({ data: { planId, actorId, action, detail } });
 }
 
-async function actor(tx: Tx, userId: string, roles: Role[]) {
+export async function actor(tx: Tx, userId: string, roles: Role[]) {
   const u = await tx.user.findUniqueOrThrow({ where: { id: userId } });
   if (!roles.includes(u.role)) throw new ForbiddenError(`Role ${u.role} may not do this`);
   return u;
@@ -42,26 +42,32 @@ export async function getOrCreatePlan(wardId: string, monthYmd: string) {
   return prisma.plan.upsert({ where: { wardId_month: { wardId, month } }, update: {}, create: { wardId, month } });
 }
 
-/** Assign (or clear, with shiftTypeId=null) one cell of the roster grid. Editing a reviewed/published plan starts a new version. */
+/** Core of a roster edit, shared by planner edits and leave application: editing a reviewed/published plan starts a new version. */
+export async function applyShift(tx: Tx, planId: string, userId: string, actorId: string, dateYmd: string, shiftTypeId: string | null) {
+  const { state } = await loadState(tx, planId);
+  const next = coreEdit(state);
+  if (next !== state) {
+    await tx.plan.update({ where: { id: planId }, data: { status: next.status, version: next.version } });
+    await audit(tx, planId, actorId, "NEW_VERSION", { version: next.version });
+  }
+  const where = { planId_userId_date: { planId, userId, date: toDate(dateYmd) } };
+  const existing = await tx.shift.findUnique({ where });
+  if (!shiftTypeId) {
+    if (existing) await tx.shift.delete({ where });
+  } else if (existing) {
+    await tx.shift.update({ where, data: { shiftTypeId, sequence: { increment: 1 } } });
+  } else {
+    await tx.shift.create({ data: { planId, userId, shiftTypeId, date: toDate(dateYmd) } });
+  }
+  await audit(tx, planId, actorId, "SET_SHIFT", { userId, date: dateYmd, shiftTypeId });
+  return existing;
+}
+
+/** Assign (or clear, with shiftTypeId=null) one cell of the roster grid. */
 export async function setShift(planId: string, userId: string, actorId: string, dateYmd: string, shiftTypeId: string | null) {
   return prisma.$transaction(async (tx) => {
     await actor(tx, actorId, PLAN_ROLES);
-    const { state } = await loadState(tx, planId);
-    const next = coreEdit(state);
-    if (next !== state) {
-      await tx.plan.update({ where: { id: planId }, data: { status: next.status, version: next.version } });
-      await audit(tx, planId, actorId, "NEW_VERSION", { version: next.version });
-    }
-    const where = { planId_userId_date: { planId, userId, date: toDate(dateYmd) } };
-    const existing = await tx.shift.findUnique({ where });
-    if (!shiftTypeId) {
-      if (existing) await tx.shift.delete({ where });
-    } else if (existing) {
-      await tx.shift.update({ where, data: { shiftTypeId, sequence: { increment: 1 } } });
-    } else {
-      await tx.shift.create({ data: { planId, userId, shiftTypeId, date: toDate(dateYmd) } });
-    }
-    await audit(tx, planId, actorId, "SET_SHIFT", { userId, date: dateYmd, shiftTypeId });
+    await applyShift(tx, planId, userId, actorId, dateYmd, shiftTypeId);
   });
 }
 

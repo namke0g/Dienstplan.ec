@@ -4,13 +4,15 @@ import { logoutAction } from "@/app/actions";
 
 const ROLE_LABEL: Record<Role, string> = { ADMIN: "Admin", PLANNER: "Planer:in", PDL: "PDL", BETRIEBSRAT: "Betriebsrat", EMPLOYEE: "Mitarbeiter:in" };
 
-export function Nav({ name, role, unread }: { name: string; role: Role; unread: number }) {
+export function Nav({ name, role, unread, openRequests = 0 }: { name: string; role: Role; unread: number; openRequests?: number }) {
   const links: [string, string][] =
     role === "PLANNER" || role === "ADMIN"
       ? [["/planer", "Planung"], ["/mein-plan", "Mein Plan"]]
       : role === "PDL" || role === "BETRIEBSRAT"
         ? [["/pruefung", "Prüfung"], ["/mein-plan", "Veröffentlichter Plan"]]
         : [["/mein-plan", "Mein Plan"]];
+  links.push(["/urlaub", "Urlaub"]);
+  if (role === "PLANNER" || role === "ADMIN" || role === "PDL") links.push(["/antraege", openRequests ? `Anträge (${openRequests})` : "Anträge"]);
   links.push(["/kalender", "Kalender"], ["/benachrichtigungen", unread ? `Mitteilungen (${unread})` : "Mitteilungen"]);
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">

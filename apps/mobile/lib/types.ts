@@ -7,3 +7,5 @@ export interface PlanResponse {
   entries: { id: string; date: string; title: string; note: string | null }[];
 }
 export interface NotificationItem { id: string; type: string; title: string; body: string; shortNotice: boolean; createdAt: string; read: boolean }
+export interface LeaveType { id: string; name: string; paid: boolean; noteRequired: boolean }
+export interface LeaveItem { id: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; start: string; end: string; note: string | null; decisionComment: string | null; type: { id: string; name: string; paid: boolean } }

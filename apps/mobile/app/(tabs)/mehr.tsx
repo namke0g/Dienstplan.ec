@@ -1,5 +1,6 @@
 import * as Clipboard from "expo-clipboard";
 import { useState } from "react";
+import { router } from "expo-router";
 import { Alert, Linking, ScrollView, Switch, Text, View } from "react-native";
 import { Banner, Button, Card } from "@/components/ui";
 import { api } from "@/lib/api";
@@ -33,6 +34,7 @@ export default function Mehr() {
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }}>
       <Card><Text style={{ color: t.text, fontWeight: "700", fontSize: 16 }}>{user?.name}</Text></Card>
       {msg && <Banner text={msg} />}
+      <Button title="Urlaub & Abwesenheit beantragen" onPress={() => router.push("/leave")} />
       <Card style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
         <View style={{ flex: 1 }}><Text style={{ color: t.text, fontWeight: "700" }}>Push-Mitteilungen</Text><Text style={{ color: t.sub, fontSize: 12 }}>Plan veröffentlicht, Dienständerungen, Prüfungen</Text></View>
         <Switch accessibilityLabel="Push-Mitteilungen" value={!!user?.pushEnabled} onValueChange={togglePush} />

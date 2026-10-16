@@ -5,15 +5,17 @@ import { fmtTime, monthParam } from "@/lib/format";
 import { MonthNav } from "@/components/MonthNav";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Legend, RosterGrid } from "@/components/RosterGrid";
-import { publishAction, submitAction } from "@/app/actions";
+import { applyLeaveAction, publishAction, submitAction } from "@/app/actions";
 
-export default async function PlanerPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
+export default async function PlanerPage({ searchParams }: { searchParams: Promise<{ m?: string; err?: string }> }) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
-  const month = monthParam((await searchParams).m);
+  const sp = await searchParams;
+  const month = monthParam(sp.m);
   const { staff, types } = await wardContext(me.wardId);
   const plan = await getOrCreatePlan(me.wardId, `${month}-01`);
   const shifts = await draftShifts(plan.id);
   const approvals = await prisma.approval.findMany({ where: { planId: plan.id, version: plan.version }, include: { decidedBy: { select: { name: true } } } });
+  const heldLeave = await prisma.leaveRequest.findMany({ where: { status: "APPROVED", pendingMonths: { has: month }, user: { wardId: me.wardId } }, include: { user: { select: { name: true } }, shiftType: true } });
   const violations = violationsFor(shifts, types);
   const names = new Map(staff.map((s) => [s.id, s.name]));
   const typeName = new Map(types.map((t) => [t.id, t.name]));
@@ -34,6 +36,20 @@ export default async function PlanerPage({ searchParams }: { searchParams: Promi
 
       {plan.status === "IN_REVIEW" && <p className="card text-sm">Der Plan liegt bei PDL und Betriebsrat zur Prüfung. Änderungen sind jetzt gesperrt.</p>}
       {plan.status === "PUBLISHED" && <p className="card text-sm">Plan ist online. Jede Änderung erzeugt eine neue Version, die erneut von PDL und Betriebsrat genehmigt werden muss. Mitarbeitende sehen bis dahin die veröffentlichte Version.</p>}
+
+      {sp.err && <p role="alert" className="card border-rose-300 text-sm text-rose-700">{sp.err}</p>}
+      {heldLeave.length > 0 && (
+        <div className="card space-y-2 border-amber-300 text-sm">
+          <b>Genehmigte Abwesenheiten, die noch nicht im Plan stehen ({heldLeave.length})</b>
+          <p className="text-slate-500">{plan.status === "IN_REVIEW" ? "Der Plan ist in Prüfung – übernimm sie nach der Entscheidung." : "Das Übernehmen ändert den Plan und startet eine neue Version, die erneut genehmigt werden muss."}</p>
+          {heldLeave.map((r) => (
+            <form key={r.id} action={applyLeaveAction.bind(null, r.id, month)} className="flex flex-wrap items-center justify-between gap-2">
+              <span>{r.user.name} · {r.shiftType.name} · {r.start.toISOString().slice(0, 10).split("-").reverse().join(".")} – {r.end.toISOString().slice(0, 10).split("-").reverse().join(".")}</span>
+              <button className="btn-ghost !py-1" disabled={plan.status === "IN_REVIEW"}>In Plan übernehmen</button>
+            </form>
+          ))}
+        </div>
+      )}
 
       <div className="grid gap-2 sm:grid-cols-2">
         {["PDL", "BETRIEBSRAT"].map((role) => {
