@@ -1,9 +1,10 @@
-import type { Role } from "@prisma/client";
+import type { Prisma, Role } from "@prisma/client";
 import { eachDay, monthsBetween, rangesOverlap, validateLeaveRange, localToday } from "@dienstplan/core";
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 import { actor, applyShift, ForbiddenError, loadState, type Tx } from "./service";
 import { assertEnoughLeave } from "./balance";
+import { writeRosterCells } from "./rosterCells";
 
 const DECIDERS: Role[] = ["PLANNER", "ADMIN", "PDL"];
 const REQUESTABLE = ["VACATION", "SPECIAL_LEAVE"] as const;
@@ -44,6 +45,103 @@ export async function createLeave(userId: string, input: { shiftTypeId: string; 
 export async function cancelLeave(id: string, userId: string) {
   const { count } = await prisma.leaveRequest.updateMany({ where: { id, userId, status: "PENDING" }, data: { status: "CANCELLED" } });
   if (!count) throw new LeaveError("Nur offene eigene Anträge können zurückgezogen werden.");
+}
+
+/**
+ * Give back approved leave that has not started yet. Approved leave binds both sides, so this is a request: the leave stays
+ * in the plan until a planner/PDL agrees.
+ */
+export async function requestLeaveCancellation(id: string, userId: string, reason: string, today = todayYmd()) {
+  return prisma.$transaction(async (tx) => {
+    const req = await tx.leaveRequest.findUnique({ where: { id }, include: { user: true, shiftType: true } });
+    if (!req || req.userId !== userId || req.status !== "APPROVED") throw new LeaveError("Nur eigener genehmigter Urlaub kann zurückgegeben werden.");
+    if (req.cancelRequestedAt) throw new LeaveError("Die Rückgabe ist bereits beantragt.");
+    if (toYmd(req.start) <= today) throw new LeaveError("Bereits begonnene Abwesenheiten können nicht mehr zurückgegeben werden. Bitte sprich mit der Planung.");
+    const why = reason.trim().slice(0, 500);
+    if (!why) throw new LeaveError("Bitte gib einen Grund für die Rückgabe an.");
+    const { count } = await tx.leaveRequest.updateMany({ where: { id, status: "APPROVED", cancelRequestedAt: null }, data: { cancelRequestedAt: new Date(), cancelReason: why } });
+    if (!count) throw new LeaveError("Die Rückgabe ist bereits beantragt.");
+    await notifyDeciders(tx, req.user.wardId, "Rückgabe von Urlaub beantragt", `${req.user.name}: ${req.shiftType.name} ${dmy(toYmd(req.start))}–${dmy(toYmd(req.end))}`);
+  });
+}
+
+/**
+ * What the employee sees: approved leave with an open return request shows as such (until the leave starts: then the request has
+ * lapsed and the leave simply stands), and leave given back with consent is "returned", not "withdrawn".
+ */
+export function leaveDisplayStatus(r: { status: string; start: Date; cancelRequestedAt: Date | null; cancelledAt: Date | null }, today = todayYmd()) {
+  if (r.status === "CANCELLED" && r.cancelledAt) return "RETURNED" as const;
+  if (r.status === "APPROVED" && r.cancelRequestedAt && toYmd(r.start) > today) return "RETURN_REQUESTED" as const;
+  return r.status as "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+}
+
+/** Open return requests for the deciders of a ward (lapsed ones, whose leave has begun, are left out). */
+export function openLeaveReturns(wardId: string, today = todayYmd()) {
+  return prisma.leaveRequest.findMany({
+    where: { user: { wardId }, status: "APPROVED", cancelRequestedAt: { not: null }, start: { gt: toDate(today) } },
+    orderBy: { start: "asc" }, include: { user: { select: { name: true } }, shiftType: true },
+  });
+}
+
+/** The employee takes back their own open cancellation request (the leave stays as approved). */
+export async function withdrawLeaveCancellation(id: string, userId: string) {
+  const { count } = await prisma.leaveRequest.updateMany({ where: { id, userId, status: "APPROVED", cancelRequestedAt: { not: null } }, data: { cancelRequestedAt: null, cancelReason: null } });
+  if (!count) throw new LeaveError("Es gibt keine offene Rückgabe zu diesem Antrag.");
+}
+
+/**
+ * Planner/PDL decides a cancellation request. Agreeing frees the days in the roster: draft and published copy, each only while it
+ * still shows this leave (a planner's later change stays). Days count as leave again in the balance only while they are in the
+ * roster, so the days are credited back at once. A freed day is simply free: new shifts on it go through the normal plan approval.
+ */
+export async function decideLeaveCancellation(id: string, actorId: string, decision: "APPROVED" | "REJECTED", comment?: string, today = todayYmd()) {
+  return prisma.$transaction(async (tx) => {
+    const me = await actor(tx, actorId, DECIDERS);
+    const req = await tx.leaveRequest.findUnique({ where: { id }, include: { user: true, shiftType: true } });
+    if (!req) throw new LeaveError("Antrag nicht gefunden.");
+    if (req.user.wardId !== me.wardId) throw new ForbiddenError("Antrag gehört zu einer anderen Station");
+    if (req.status !== "APPROVED" || !req.cancelRequestedAt) throw new LeaveError("Zu diesem Antrag ist keine Rückgabe offen.");
+    const what = `${req.shiftType.name} ${dmy(toYmd(req.start))}–${dmy(toYmd(req.end))}`;
+
+    if (decision === "REJECTED") {
+      if (!comment?.trim()) throw new LeaveError("Eine Ablehnung braucht eine Begründung.");
+      const { count } = await tx.leaveRequest.updateMany({ where: { id, status: "APPROVED", cancelRequestedAt: { not: null } }, data: { cancelRequestedAt: null, cancelReason: null } });
+      if (!count) throw new LeaveError("Zu diesem Antrag ist keine Rückgabe offen.");
+      await tx.notification.create({ data: { userId: req.userId, type: "LEAVE_DECIDED", title: "Rückgabe abgelehnt", body: `${what} bleibt genehmigt: ${comment.trim()}` } });
+      return { freed: 0 };
+    }
+
+    if (toYmd(req.start) <= today) throw new LeaveError("Die Abwesenheit hat schon begonnen und kann nicht mehr zurückgegeben werden.");
+    const days = eachDay(toYmd(req.start), toYmd(req.end)).filter((d) => !req.pendingMonths.includes(d.slice(0, 7))); // pending months never reached the roster
+    const inReview = await tx.plan.count({ where: { wardId: req.user.wardId, status: "IN_REVIEW", month: { in: [...new Set(days.map((d) => toDate(`${d.slice(0, 7)}-01`)))] } } });
+    if (inReview) throw new LeaveError("Der Plan ist gerade in Prüfung. Bitte nach der Entscheidung zustimmen.");
+    // claim first: two deciders clicking at once must not both free the days
+    const { count } = await tx.leaveRequest.updateMany({
+      where: { id, status: "APPROVED", cancelRequestedAt: { not: null } },
+      data: { status: "CANCELLED", cancelledById: me.id, cancelledAt: new Date(), pendingMonths: [] },
+    });
+    if (!count) throw new LeaveError("Zu diesem Antrag ist keine Rückgabe offen.");
+    let freed = 0;
+    if (days.length) {
+      await writeRosterCells(tx, req.user.wardId, days.map((date) => ({
+        userId: req.userId, date,
+        value: (now) => {
+          const v = { draft: now.draft === req.shiftTypeId ? null : undefined, published: now.published === req.shiftTypeId ? null : undefined };
+          if (v.draft === null || v.published === null) freed++;
+          return v;
+        },
+      })), { actorId, action: "LEAVE_CANCELLED", detail: { leaveRequestId: id, userId: req.userId, days } });
+    }
+    // days now covered by a sick report keep the sick entry; when that report ends, those days must come back free, not as leave
+    const sick = await tx.sickReport.findMany({ where: { userId: req.userId, start: { lte: req.end }, end: { gte: req.start } } });
+    for (const r of sick) {
+      const replaced = (r.replaced as unknown as { date: string; draft: string | null; published?: string | null }[]).map((x) =>
+        !days.includes(x.date) ? x : { ...x, draft: x.draft === req.shiftTypeId ? null : x.draft, ...(x.published !== undefined ? { published: x.published === req.shiftTypeId ? null : x.published } : {}) });
+      await tx.sickReport.update({ where: { id: r.id }, data: { replaced: replaced as unknown as Prisma.InputJsonValue } });
+    }
+    await tx.notification.create({ data: { userId: req.userId, type: "LEAVE_DECIDED", title: "Rückgabe genehmigt", body: `${what} ist zurückgegeben. Die Tage sind wieder frei.` } });
+    return { freed };
+  });
 }
 
 /** Writes the leave into the roster of one month. Returns how many existing cells with a different entry were replaced. */

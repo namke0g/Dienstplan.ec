@@ -100,6 +100,7 @@ model User {
   approvals    Approval[]
   leaveRequests LeaveRequest[] @relation("LeaveOwner")
   leaveDecisions LeaveRequest[] @relation("LeaveDecider")
+  leaveCancellations LeaveRequest[] @relation("LeaveCanceller")
   swapsRequested SwapRequest[] @relation("SwapRequester")
   swapsReceived SwapRequest[] @relation("SwapPartner")
   swapsDecided SwapRequest[] @relation("SwapDecider")
@@ -267,6 +268,13 @@ model LeaveRequest {
   decisionComment String?
   /// YYYY-MM months of an approved request that are not yet in the roster (plan was in review/published); the planner applies them
   pendingMonths String[]  @default([])
+  /// the employee asked to cancel this approved leave; it stays APPROVED until a decider agrees (then CANCELLED) or declines
+  cancelRequestedAt DateTime?
+  cancelReason      String?
+  /// who agreed to the cancellation of approved leave, and when
+  cancelledById     String?
+  cancelledBy       User?     @relation("LeaveCanceller", fields: [cancelledById], references: [id])
+  cancelledAt       DateTime?
   createdAt   DateTime    @default(now())
 
   @@index([userId, start])

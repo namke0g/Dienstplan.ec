@@ -1,12 +1,13 @@
 import { localToday } from "@dienstplan/core";
-import { getBalance, prisma, toYmd } from "@dienstplan/db";
+import { getBalance, leaveDisplayStatus, prisma, toYmd } from "@dienstplan/db";
 import { BalanceCard } from "@/components/BalanceCard";
 import { requireUser } from "@/lib/auth";
-import { cancelLeaveAction, createLeaveAction } from "@/app/actions";
+import { cancelLeaveAction, createLeaveAction, requestLeaveCancellationAction, withdrawLeaveCancellationAction } from "@/app/actions";
 
 const STATUS: Record<string, [string, string]> = {
   PENDING: ["Offen", "bg-amber-100 text-amber-900"], APPROVED: ["Genehmigt", "bg-emerald-100 text-emerald-900"],
   REJECTED: ["Abgelehnt", "bg-rose-100 text-rose-900"], CANCELLED: ["Zurückgezogen", "bg-slate-200 text-slate-700"],
+  RETURNED: ["Zurückgegeben", "bg-slate-200 text-slate-700"], RETURN_REQUESTED: ["Rückgabe beantragt", "bg-amber-100 text-amber-900"],
 };
 const dmy = (d: string) => d.split("-").reverse().join(".");
 
@@ -39,13 +40,14 @@ export default async function UrlaubPage({ searchParams }: { searchParams: Promi
           <input name="note" maxLength={500} className="input mt-1" /></label>
         <div className="flex items-end"><button className="btn w-full">Antrag senden</button></div>
       </form>
-      <p className="text-xs text-slate-500">Krankmeldungen werden nicht hier beantragt – bitte melde dich telefonisch bei der Stationsleitung. Genehmigte Abwesenheiten werden in den Dienstplan übernommen und sind für Kolleg:innen sichtbar, sobald der Plan veröffentlicht ist.</p>
+      <p className="text-xs text-slate-500">Krankmeldungen werden nicht beantragt, sondern unter „Krank melden“ erfasst. Genehmigte Abwesenheiten werden in den Dienstplan übernommen und sind für Kolleg:innen sichtbar, sobald der Plan veröffentlicht ist.</p>
 
       <h2 className="font-semibold">Meine Anträge</h2>
       {requests.length === 0 && <p className="card text-sm text-slate-500">Noch keine Anträge.</p>}
       <ul className="space-y-2">
         {requests.map((r) => {
-          const [label, cls] = STATUS[r.status]!;
+          const key = leaveDisplayStatus(r, today);
+          const [label, cls] = STATUS[key]!;
           return (
             <li key={r.id} className="card flex flex-wrap items-center justify-between gap-2 text-sm">
               <div>
@@ -57,7 +59,18 @@ export default async function UrlaubPage({ searchParams }: { searchParams: Promi
               <div className="flex items-center gap-2">
                 <span className={`rounded-full px-2.5 py-0.5 text-xs font-medium ${cls}`}>{label}</span>
                 {r.status === "PENDING" && <form action={cancelLeaveAction.bind(null, r.id)}><button className="btn-ghost !py-1">Zurückziehen</button></form>}
+                {key === "RETURN_REQUESTED" && <form action={withdrawLeaveCancellationAction.bind(null, r.id)}><button className="btn-ghost !py-1">Rückgabe zurücknehmen</button></form>}
               </div>
+              {key === "APPROVED" && toYmd(r.start) > today && (
+                <details className="w-full">
+                  <summary className="cursor-pointer text-xs text-slate-500">Urlaub zurückgeben …</summary>
+                  <form action={requestLeaveCancellationAction.bind(null, r.id)} className="mt-2 flex flex-wrap gap-2" aria-label={`Rückgabe ${r.shiftType.name} ${dmy(toYmd(r.start))}`}>
+                    <input name="reason" required maxLength={500} placeholder="Grund" aria-label="Grund für die Rückgabe" className="input flex-1" />
+                    <button className="btn-ghost !py-1">Rückgabe beantragen</button>
+                  </form>
+                  <p className="mt-1 text-xs text-slate-500">Genehmigter Urlaub bleibt bestehen, bis Planung oder PDL zustimmen. Danach sind die Tage wieder frei und werden dem Urlaubskonto gutgeschrieben.</p>
+                </details>
+              )}
             </li>
           );
         })}

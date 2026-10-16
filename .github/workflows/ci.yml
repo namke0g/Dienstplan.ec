@@ -80,14 +80,21 @@ jobs:
       - run: docker compose config --quiet
       - name: Start database, migrations and the app, wait until the app reports healthy
         run: |
-          docker compose up -d --build db web
+          dump() {
+            docker compose ps -a
+            # job logs are not always readable; surface the end of each service's log as annotations
+            for svc in migrate web db; do
+              docker compose logs --no-color --tail 15 "$svc" 2>&1 | sed 's/%/%25/g' | tr '\n' '\r' | sed "s/\r/%0A/g; s/^/::error title=$svc log::/"; echo
+            done
+          }
+          docker compose up -d --build db web || { dump; exit 1; }
           for i in $(seq 1 60); do
             status=$(docker inspect --format '{{.State.Health.Status}}' "$(docker compose ps -q web)" 2>/dev/null || echo starting)
             echo "web health: $status"
             [ "$status" = healthy ] && exit 0
             sleep 3
           done
-          docker compose logs --no-color
+          dump
           exit 1
       - name: Health check through the container
         run: docker compose exec -T web node -e "fetch('http://127.0.0.1:3000/api/health').then(async r=>{console.log(r.status, await r.text()); process.exit(r.ok?0:1)})"
