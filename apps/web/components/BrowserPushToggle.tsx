@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { base64UrlToBytes, currentSubscription, pushSupported, unsubscribeHere } from "@/lib/browserPush";
+import { base64UrlToBytes, currentSubscription, pushSupported, registerHere, syncHere, unsubscribeHere } from "@/lib/browserPush";
 
 type State = "checking" | "unsupported" | "off" | "on" | "denied" | "busy" | "failed";
 
@@ -10,20 +10,22 @@ export function BrowserPushToggle({ publicKey }: { publicKey: string }) {
   useEffect(() => {
     if (!pushSupported()) return setState("unsupported");
     if (Notification.permission === "denied") return setState("denied");
+    // "on" only if this browser's subscription is valid and registered for the person signed in now
     navigator.serviceWorker.register("/sw.js", { scope: "/" })
-      .then(() => currentSubscription())
-      .then((s) => setState(s ? "on" : "off"))
+      .then(() => syncHere(publicKey))
+      .then((on) => setState(on ? "on" : "off"))
       .catch(() => setState("unsupported"));
-  }, []);
+  }, [publicKey]);
 
   async function enable() {
     setState("busy");
     try {
       if ((await Notification.requestPermission()) !== "granted") return setState("denied");
       const reg = await navigator.serviceWorker.ready;
+      // a leftover subscription (e.g. made with an old server key) would make subscribe() fail, so start clean
+      await (await currentSubscription())?.unsubscribe().catch(() => {});
       const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: base64UrlToBytes(publicKey) });
-      const res = await fetch("/api/push/register", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(sub.toJSON()) });
-      if (!res.ok) { await sub.unsubscribe(); throw new Error(String(res.status)); }
+      if (!(await registerHere(sub))) { await sub.unsubscribe(); throw new Error("register failed"); }
       setState("on");
     } catch { setState("failed"); }
   }
@@ -33,7 +35,7 @@ export function BrowserPushToggle({ publicKey }: { publicKey: string }) {
     checking: "Prüfe Browser …",
     unsupported: "Dieser Browser kann keine Push-Mitteilungen empfangen. Auf iPhone/iPad: Seite zuerst über „Teilen → Zum Home-Bildschirm“ hinzufügen und von dort öffnen.",
     off: "Mitteilungen auch in diesem Browser erhalten (z. B. am Arbeitsplatz-PC). Der Text bleibt allgemein, Details siehst du nach der Anmeldung.",
-    on: "Browser-Mitteilungen sind auf diesem Gerät aktiv. Beim Abmelden werden sie hier automatisch ausgeschaltet.",
+    on: "Browser-Mitteilungen sind in diesem Browser für dich aktiv. Meldest du dich ab, meldet sich hier jemand anderes an oder änderst du dein Passwort, enden sie für dich in diesem Browser.",
     denied: "Mitteilungen sind im Browser blockiert. Erlaube sie in den Website-Einstellungen des Browsers.",
     busy: "Einen Moment …",
     failed: "Das hat nicht geklappt. Bitte später erneut versuchen.",

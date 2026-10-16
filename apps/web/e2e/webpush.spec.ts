@@ -16,9 +16,12 @@ test.beforeAll(async () => {
     const chunks: Buffer[] = [];
     req.on("data", (c) => chunks.push(c));
     req.on("end", () => {
-      received.push({ path: req.url ?? "", headers: req.headers, bytes: Buffer.concat(chunks).length });
-      res.statusCode = req.url?.includes("gone") ? 410 : 201;
-      res.end();
+      const answer = () => {
+        received.push({ path: req.url ?? "", headers: req.headers, bytes: Buffer.concat(chunks).length });
+        res.statusCode = req.url?.includes("gone") ? 410 : 201;
+        res.end();
+      };
+      if (req.url?.includes("slow")) setTimeout(answer, 3000); else answer(); // "slow": a sluggish push service
     });
   }).listen(3198);
 });
@@ -58,6 +61,8 @@ test("subscription endpoint: login required, input validated, own subscriptions 
   const api = page.request; // carries Anna's session cookie
   for (const bad of [
     {},
+    { ...subscription("x"), endpoint: "https://10.0.0.5:8443/admin" }, // internal address: never accepted
+    { ...subscription("x"), endpoint: "https://evil.example/collect" }, // not a push service
     { ...subscription("x"), endpoint: "http://insecure.example/x" },
     { ...subscription("x"), keys: { p256dh: "not base64!", auth: "abc" } },
     { ...subscription("x"), endpoint: `https://example.com/${"a".repeat(3000)}` },
@@ -86,10 +91,9 @@ test("a real event reaches the browser's push service: encrypted, VAPID-signed, 
   expect(msg.headers.urgency).toBe("normal");
   expect(msg.bytes).toBeGreaterThan(0);
 
-  // in-app list says it was delivered by push
-  await page.goto("/benachrichtigungen");
+  // in-app list says it was delivered by push (delivery runs after the response, so reload until it is recorded)
+  await expect.poll(async () => { await page.goto("/benachrichtigungen"); return page.getByText(/Push zugestellt/).count(); }).toBeGreaterThan(0);
   await expect(page.getByText("Neuer Abwesenheitsantrag").first()).toBeVisible();
-  await expect(page.getByText(/Push zugestellt/).first()).toBeVisible();
 });
 
 test("a subscription the push service reports as gone is removed and not used again", async ({ page, request }) => {
@@ -105,4 +109,19 @@ test("a subscription the push service reports as gone is removed and not used ag
   await request.post("/api/mobile/leave", { ...ben, data: { typeId: unpaid, start: day(110), end: day(110) } });
   await page.waitForTimeout(1000);
   expect(received.filter((x) => x.path === "/pdl-gone").length).toBe(1); // not contacted again
+});
+
+test("a slow push service does not make anyone wait: the request answers first, the push follows", async ({ page, request }) => {
+  await login(page, "planer@demo.de");
+  expect((await page.request.post("/api/push/register", { data: subscription("slow-pc") })).status()).toBe(204);
+  received.length = 0;
+  const eva = await mobile(request, "eva@demo.de");
+  const types = (await (await request.get("/api/mobile/leave", eva)).json()).types as { id: string; name: string }[];
+  const d = new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10);
+  const t0 = Date.now();
+  const r = await request.post("/api/mobile/leave", { ...eva, data: { typeId: types.find((t) => t.name === "Unbezahlter Urlaub")!.id, start: d, end: d } });
+  const took = Date.now() - t0;
+  expect(r.status()).toBe(201);
+  expect(took).toBeLessThan(2000); // the push service needs 3 s; before the fix the request waited for it
+  await expect.poll(() => received.filter((x) => x.path === "/slow-pc").length, { timeout: 10_000 }).toBe(1); // and the push still arrives
 });

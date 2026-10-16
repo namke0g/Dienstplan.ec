@@ -49,6 +49,7 @@ export default defineConfig({
       VAPID_SUBJECT: "mailto:e2e@example.com",
       VAPID_PUBLIC_KEY: vapid.publicKey,
       VAPID_PRIVATE_KEY: vapid.privateKey,
+      WEB_PUSH_EXTRA_HOSTS: "localhost", // the fake push service in e2e/webpush.spec.ts (production accepts only real push services)
       PUSH_RETRY_SECONDS: "0", // no background timer in tests; deliveries happen right after each action
       NODE_EXTRA_CA_CERTS: join(process.env.PUSH_TEST_CERT_DIR!, "c.pem"), // trust exactly the test certificate; TLS verification stays on
     },

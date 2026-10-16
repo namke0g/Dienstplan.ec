@@ -1,9 +1,9 @@
-import { registerWebPush, unregisterWebPush, webPushConfigured } from "@dienstplan/db";
+import { isAllowedPushEndpoint, registerWebPush, unregisterWebPush, webPushConfigured } from "@dienstplan/db";
 import { getUser } from "@/lib/auth";
 
 const B64URL = /^[A-Za-z0-9_-]+={0,2}$/;
 const valid = (b: { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } } | null) =>
-  !!b && typeof b.endpoint === "string" && b.endpoint.length <= 2048 && /^https:\/\/[^\s]+$/.test(b.endpoint) &&
+  !!b && typeof b.endpoint === "string" && b.endpoint.length <= 2048 && isAllowedPushEndpoint(b.endpoint) && // only real push services
   typeof b.keys?.p256dh === "string" && B64URL.test(b.keys.p256dh) && b.keys.p256dh.length <= 200 &&
   typeof b.keys?.auth === "string" && B64URL.test(b.keys.auth) && b.keys.auth.length <= 100;
 

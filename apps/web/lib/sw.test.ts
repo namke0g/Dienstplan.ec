@@ -4,17 +4,25 @@ import { readFileSync } from "node:fs";
 import { runInNewContext } from "node:vm";
 
 /** Loads public/sw.js into a fake service-worker global and returns its listeners plus what it did. */
-function loadWorker(openWindows: { url: string }[] = []) {
+function loadWorker(openWindows: { url: string; controlled?: boolean }[] = []) {
   const listeners: Record<string, (e: unknown) => void> = {};
   const shown: { title: string; options: Record<string, unknown> }[] = [];
   const opened: string[] = [];
   const navigated: string[] = [];
+  const claimed: boolean[] = [];
+  const skipped: boolean[] = [];
   const self = {
     location: { origin: "https://dienstplan.example.de" },
+    skipWaiting: async () => { skipped.push(true); },
     addEventListener: (type: string, fn: (e: unknown) => void) => { listeners[type] = fn; },
     registration: { showNotification: async (title: string, options: Record<string, unknown>) => { shown.push({ title, options }); } },
     clients: {
-      matchAll: async () => openWindows.map((w) => ({ url: w.url, focus: async () => {}, navigate: async (u: string) => { navigated.push(u); } })),
+      // like real browsers: navigate() resolves to the window, and rejects for tabs this worker does not control
+      matchAll: async () => openWindows.map((w) => {
+        const win = { url: w.url, focus: async () => win, navigate: async (u: string) => { if (w.controlled === false) throw new TypeError("not controlled"); navigated.push(u); return win; } };
+        return win;
+      }),
+      claim: async () => { claimed.push(true); },
       openWindow: async (u: string) => { opened.push(u); },
     },
   };
@@ -24,7 +32,7 @@ function loadWorker(openWindows: { url: string }[] = []) {
     listeners[type]!({ ...event, waitUntil: (p: Promise<unknown>) => { pending = p; } });
     await pending;
   };
-  return { fire, shown, opened, navigated };
+  return { fire, shown, opened, navigated, claimed, skipped };
 }
 const pushEvent = (payload: unknown) => ({ data: { json: () => (typeof payload === "string" ? JSON.parse(payload) : payload) } });
 
@@ -56,4 +64,27 @@ test("a click reuses an open app window instead of opening another", async () =>
   await w.fire("notificationclick", { notification: { close() {}, data: { url: "/benachrichtigungen" } } });
   assert.deepEqual(w.navigated, ["https://dienstplan.example.de/benachrichtigungen"]);
   assert.deepEqual(w.opened, []);
+});
+
+test("#8 the worker takes control right away, so it can steer open tabs", async () => {
+  const w = loadWorker();
+  await w.fire("install", {});
+  await w.fire("activate", {});
+  assert.equal(w.skipped.length, 1);
+  assert.equal(w.claimed.length, 1);
+});
+
+test("#8 a click on a tab the worker does not control still opens the page", async () => {
+  const w = loadWorker([{ url: "https://dienstplan.example.de/kalender", controlled: false }]);
+  await w.fire("notificationclick", { notification: { close() {}, data: { url: "/benachrichtigungen" } } });
+  assert.deepEqual(w.opened, ["https://dienstplan.example.de/benachrichtigungen"]);
+});
+
+test("#9 each message gets its own tag, so a routine message cannot replace an urgent one", async () => {
+  const w = loadWorker();
+  await w.fire("push", pushEvent({ id: "n1", title: "Kurzfristige Änderung", urgent: true }));
+  await w.fire("push", pushEvent({ id: "n2", title: "Neuer Antrag" }));
+  await w.fire("push", pushEvent({ id: "n1", title: "Kurzfristige Änderung", urgent: true })); // re-sent: replaces itself only
+  assert.deepEqual(w.shown.map((s) => s.options.tag), ["dienstplan-n1", "dienstplan-n2", "dienstplan-n1"]);
+  assert.equal(w.shown[0]!.options.requireInteraction, true);
 });

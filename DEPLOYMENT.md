@@ -67,10 +67,13 @@ Zusätzlich zur App können Mitteilungen auch im Browser erscheinen, z. B. am St
 3. Jede Person schaltet es unter *Mitteilungen → Browser-Mitteilungen* pro Browser ein.
 
 Wichtig:
-- Der Text im Browser ist bewusst **allgemein** („Es gibt eine neue Mitteilung …“), weil Bildschirme geteilt werden; Details sieht man erst nach der Anmeldung. Beim **Abmelden** wird der Browser automatisch ausgetragen.
+- Der Text im Browser ist bewusst **allgemein** („Es gibt eine neue Mitteilung …“), weil Bildschirme geteilt werden; Details sieht man erst nach der Anmeldung.
+- **Geteilte PCs:** Browser-Push endet für eine Person in diesem Browser, wenn sie sich abmeldet, wenn sich dort jemand anderes anmeldet (der Browser wechselt dann zu dieser Person) und wenn ihre Sitzungen serverseitig beendet werden (Passwort geändert/zurückgesetzt, Rolle oder E-Mail geändert, deaktiviert). Läuft eine Sitzung nur ab und niemand meldet sich danach an, bleibt der Browser bis zur nächsten Anmeldung eingetragen (mit allgemeinem Text).
+- Es werden nur Adressen der bekannten Push-Dienste (Google, Mozilla, Apple, Microsoft) angenommen; andere Ziele, z. B. interne Adressen, lehnt der Server ab.
 - iPhone/iPad: nur ab iOS 16.4 und nur, wenn die Seite über *Teilen → Zum Home-Bildschirm* hinzugefügt und von dort geöffnet wurde.
 - Fehlt einer der drei Werte, startet die App nicht (Fehlermeldung im Log). Ohne alle drei ist Browser-Push einfach aus.
-- Nicht zugestellte Mitteilungen (z. B. weil ein Push-Dienst nicht erreichbar war) werden alle `PUSH_RETRY_SECONDS` (Standard 300) erneut versucht, bis zu 24 Stunden lang.
+- Push wird nach der Antwort an den Nutzer verschickt (niemand wartet darauf), parallel und mit 10 s Zeitlimit je Push-Dienst (`PUSH_TIMEOUT_MS`).
+- Nicht zugestellte Mitteilungen (z. B. weil ein Push-Dienst nicht erreichbar war, oder nach einem Neustart mitten im Versand) werden alle `PUSH_RETRY_SECONDS` (Standard 300) erneut versucht, bis zu 24 Stunden lang. Abgemeldete oder ungültige Browser (auch nach einem Schlüsselwechsel) werden automatisch entfernt; beim nächsten Öffnen der Seite schalten die Personen Browser-Push einfach wieder ein.
 
 ## 5. Laufender Betrieb
 | Aufgabe | Befehl |

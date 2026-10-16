@@ -1,16 +1,24 @@
 import webpush from "web-push";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./client";
 
 const EXPO_URL = () => process.env.EXPO_PUSH_URL ?? "https://exp.host/--/api/v2/push/send";
 const CHUNK = 100;
+/** Per request to a push provider; a slow provider must never hold up delivery for everyone else. */
+const timeoutMs = () => Number(process.env.PUSH_TIMEOUT_MS ?? 10_000);
+/** How long a delivery run may hold a notification; if the process dies, the next run takes over after this. */
+const LEASE = "15 minutes";
+const BATCH = 200;
+const WEB_CONCURRENCY = 10;
 
 type Fetch = typeof fetch;
 interface Ticket { status: "ok" | "error"; id?: string; message?: string; details?: { error?: string } }
 
 /** A browser subscription (Web Push) and the result of sending to it. */
 export interface WebTarget { endpoint: string; p256dh: string; auth: string }
-export interface WebMessage { title: string; body: string; urgent: boolean; url: string }
-export type WebResult = "ok" | "gone" | "error";
+export interface WebMessage { id: string; title: string; body: string; urgent: boolean; url: string }
+/** ok: accepted · gone: subscription is dead, remove it · error: temporary, retry later · failed: this message cannot be sent, do not retry */
+export type WebResult = "ok" | "gone" | "error" | "failed";
 export type WebSender = (target: WebTarget, msg: WebMessage) => Promise<WebResult>;
 
 /**
@@ -19,8 +27,33 @@ export type WebSender = (target: WebTarget, msg: WebMessage) => Promise<WebResul
  */
 export const WEB_PUSH_BODY = "Es gibt eine neue Mitteilung. Öffne Dienstplan für Details.";
 
+/**
+ * Browsers hand out endpoints of their vendor's push service. Only those hosts are accepted, so nobody can make the server
+ * send requests to arbitrary (e.g. internal) addresses. WEB_PUSH_EXTRA_HOSTS adds hosts for tests.
+ */
+const PUSH_HOSTS = ["fcm.googleapis.com", "android.googleapis.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com"];
+export function isAllowedPushEndpoint(endpoint: string): boolean {
+  let u: URL;
+  try { u = new URL(endpoint); } catch { return false; }
+  if (u.protocol !== "https:" || u.username || u.password) return false;
+  const host = u.hostname.toLowerCase();
+  const extra = (process.env.WEB_PUSH_EXTRA_HOSTS ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+  if (extra.includes(host)) return true;
+  if (u.port && u.port !== "443") return false;
+  return PUSH_HOSTS.some((h) => host === h || host.endsWith(`.${h}`));
+}
+
 export const vapidConfig = () => ({ subject: process.env.VAPID_SUBJECT ?? "", publicKey: process.env.VAPID_PUBLIC_KEY ?? "", privateKey: process.env.VAPID_PRIVATE_KEY ?? "" });
 export const webPushConfigured = () => { const v = vapidConfig(); return !!(v.subject && v.publicKey && v.privateKey); };
+
+/** Maps a push service's HTTP answer to what we do with the subscription. */
+export function classifyPushStatus(code: number | undefined): WebResult {
+  if (code === undefined) return "error"; // network error or timeout
+  if (code >= 200 && code < 300) return "ok";
+  if ([400, 403, 404, 410].includes(code)) return "gone"; // malformed, wrong VAPID key (e.g. after rotation), or unsubscribed
+  if (code === 429 || code >= 500) return "error";
+  return "failed"; // e.g. 413: this message will never fit, but the subscription is fine
+}
 
 /** Web Push sender from the VAPID settings, or null when Web Push is not configured. */
 export function webPushSender(): WebSender | null {
@@ -29,40 +62,52 @@ export function webPushSender(): WebSender | null {
   return async (t, msg) => {
     try {
       await webpush.sendNotification({ endpoint: t.endpoint, keys: { p256dh: t.p256dh, auth: t.auth } }, JSON.stringify(msg), {
-        TTL: 24 * 3600, urgency: msg.urgent ? "high" : "normal", vapidDetails: { subject: v.subject, publicKey: v.publicKey, privateKey: v.privateKey },
+        TTL: 24 * 3600, urgency: msg.urgent ? "high" : "normal", timeout: timeoutMs(),
+        vapidDetails: { subject: v.subject, publicKey: v.publicKey, privateKey: v.privateKey },
       });
       return "ok";
     } catch (e) {
-      const code = (e as { statusCode?: number }).statusCode;
-      return code === 404 || code === 410 ? "gone" : "error"; // 404/410: the browser dropped the subscription
+      return classifyPushStatus((e as { statusCode?: number }).statusCode);
     }
   };
 }
 
+/** Runs `fn` over `items` with at most `limit` in flight. */
+async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>) {
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) await fn(items[next++]!);
+  }));
+}
+
 /**
- * Sends every notification that has not been attempted yet to the owner's devices: phones via Expo (relayed to APNs/FCM),
- * browsers via Web Push. Notifications are claimed atomically, so overlapping runs (an action and the retry timer) never send
- * the same message twice. Subscriptions the provider reports as gone are removed; when a provider is unreachable the
- * notification is released and tried again on the next run. Never throws: the in-app notification is the source of truth.
+ * Sends every notification that has not been delivered yet to the owner's devices: phones via Expo (relayed to APNs/FCM),
+ * browsers via Web Push. A run leases the notifications it works on (so overlapping runs never send twice, and a run that
+ * dies mid-way is taken over once the lease expires). Dead subscriptions are removed; when a provider is unreachable the
+ * notification is released and tried again later (up to 24 h). Never throws: the in-app notification is the source of truth.
  */
 export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webSend: WebSender | null = webPushSender()): Promise<{ sent: number; failed: number; removed: number }> {
   const result = { sent: 0, failed: 0, removed: 0 };
+  let claimedIds: string[] = [];
+  const retry = new Set<string>();
+  const delivered = new Set<string>();
+  let completed = false;
   try {
     const claimed = await prisma.$queryRaw<{ id: string }[]>`
-      UPDATE "Notification" SET "pushAttemptedAt" = now()
+      UPDATE "Notification" SET "pushClaimedUntil" = now() + ${LEASE}::interval
       WHERE id IN (
         SELECT id FROM "Notification"
-        WHERE "pushAttemptedAt" IS NULL AND "createdAt" > now() - interval '24 hours'
-        ORDER BY "createdAt" LIMIT 500
+        WHERE "pushAttemptedAt" IS NULL AND ("pushClaimedUntil" IS NULL OR "pushClaimedUntil" < now())
+          AND "createdAt" > now() - interval '24 hours'
+        ORDER BY "createdAt" LIMIT ${BATCH}
         FOR UPDATE SKIP LOCKED
       )
       RETURNING id`;
-    if (claimed.length === 0) return result;
-    const pending = await prisma.notification.findMany({ where: { id: { in: claimed.map((c) => c.id) } }, include: { user: { include: { devices: true } } } });
+    claimedIds = claimed.map((c) => c.id);
+    if (claimedIds.length === 0) return result;
+    const pending = await prisma.notification.findMany({ where: { id: { in: claimedIds } }, include: { user: { include: { devices: true } } } });
 
-    const delivered = new Set<string>();
-    const dead: string[] = [];
-    const retry = new Set<string>();
+    const dead = new Set<string>();
 
     // phones (Expo)
     const messages = pending.flatMap((n) =>
@@ -81,6 +126,7 @@ export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webS
           method: "POST",
           headers: { "content-type": "application/json", accept: "application/json", ...(process.env.EXPO_ACCESS_TOKEN ? { authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}) },
           body: JSON.stringify(chunk.map((m) => m.body)),
+          signal: AbortSignal.timeout(timeoutMs()),
         });
         if (!res.ok) throw new Error(`Expo push responded ${res.status}`);
         const { data } = (await res.json()) as { data: Ticket[] };
@@ -90,51 +136,68 @@ export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webS
           if (t.status === "ok") { result.sent++; delivered.add(m.notificationId); }
           else {
             result.failed++;
-            if (t.details?.error === "DeviceNotRegistered") dead.push(m.deviceId);
+            if (t.details?.error === "DeviceNotRegistered") dead.add(m.deviceId);
           }
         });
       } catch (e) {
         result.failed += chunk.length;
-        chunk.forEach((m) => retry.add(m.notificationId)); // provider unreachable: try again on the next run
+        chunk.forEach((m) => retry.add(m.notificationId)); // provider unreachable or too slow: try again later
         console.error("push delivery failed", e);
       }
     }
 
-    // browsers (Web Push)
+    // browsers (Web Push), in parallel with a per-request timeout
     if (webSend) {
-      for (const n of pending) {
-        if (!n.user.pushEnabled) continue;
-        for (const d of n.user.devices) {
-          if (d.platform !== "WEB" || !d.p256dh || !d.auth) continue;
-          const r = await webSend({ endpoint: d.token, p256dh: d.p256dh, auth: d.auth }, { title: n.title, body: WEB_PUSH_BODY, urgent: n.shortNotice, url: "/benachrichtigungen" });
-          if (r === "ok") { result.sent++; delivered.add(n.id); }
-          else if (r === "gone") { result.failed++; dead.push(d.id); }
-          else { result.failed++; retry.add(n.id); }
+      const jobs = pending.flatMap((n) => !n.user.pushEnabled ? [] : n.user.devices
+        .filter((d) => d.platform === "WEB" && d.p256dh && d.auth)
+        .map((d) => ({ n, d })));
+      await pool(jobs, WEB_CONCURRENCY, async ({ n, d }) => {
+        if (!isAllowedPushEndpoint(d.token)) { dead.add(d.id); return; } // stored before the allowlist existed: never contact it
+        let r: WebResult;
+        try {
+          r = await webSend({ endpoint: d.token, p256dh: d.p256dh!, auth: d.auth! }, { id: n.id, title: n.title, body: WEB_PUSH_BODY, urgent: n.shortNotice, url: "/benachrichtigungen" });
+        } catch { r = "error"; }
+        if (r === "ok") { result.sent++; delivered.add(n.id); }
+        else {
+          result.failed++;
+          if (r === "gone") dead.add(d.id);
+          else if (r === "error") retry.add(n.id);
         }
-      }
+      });
     }
 
-    const toRetry = [...retry].filter((id) => !delivered.has(id));
-    if (toRetry.length) await prisma.notification.updateMany({ where: { id: { in: toRetry } }, data: { pushAttemptedAt: null } });
     if (delivered.size) await prisma.notification.updateMany({ where: { id: { in: [...delivered] } }, data: { deliveredAt: new Date() } });
-    if (dead.length) { result.removed = (await prisma.deviceToken.deleteMany({ where: { id: { in: dead } } })).count; }
+    if (dead.size) { result.removed = (await prisma.deviceToken.deleteMany({ where: { id: { in: [...dead] } } })).count; }
+    completed = true;
   } catch (e) {
     console.error("push delivery error", e);
+  } finally {
+    // Finish the lease. Retry: temporary failures that reached no device, or everything not delivered if the run broke off.
+    const again = claimedIds.filter((id) => !delivered.has(id) && (!completed || retry.has(id)));
+    const done = claimedIds.filter((id) => !again.includes(id));
+    try {
+      if (done.length) await prisma.notification.updateMany({ where: { id: { in: done } }, data: { pushAttemptedAt: new Date(), pushClaimedUntil: null } });
+      if (again.length) await prisma.notification.updateMany({ where: { id: { in: again } }, data: { pushClaimedUntil: null } });
+    } catch (e) {
+      console.error("push lease release failed (the lease expires on its own)", e);
+    }
   }
   return result;
 }
 
 const MAX_BROWSERS_PER_USER = 10;
 
-/** Stores (or moves to this user) a browser subscription. Keeps at most 10 browsers per person, dropping the oldest. */
+/** Stores (or moves to this user) a browser subscription. Keeps the 10 most recently seen browsers per person. */
 export async function registerWebPush(userId: string, sub: WebTarget) {
+  if (!isAllowedPushEndpoint(sub.endpoint)) throw new Error("push endpoint not allowed");
   await prisma.$transaction(async (tx) => {
+    const now = new Date();
     await tx.deviceToken.upsert({
       where: { token: sub.endpoint },
-      update: { userId, platform: "WEB", p256dh: sub.p256dh, auth: sub.auth },
-      create: { userId, platform: "WEB", token: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth },
+      update: { userId, platform: "WEB", p256dh: sub.p256dh, auth: sub.auth, lastSeenAt: now },
+      create: { userId, platform: "WEB", token: sub.endpoint, p256dh: sub.p256dh, auth: sub.auth, lastSeenAt: now },
     });
-    const browsers = await tx.deviceToken.findMany({ where: { userId, platform: "WEB" }, orderBy: { createdAt: "desc" }, select: { id: true } });
+    const browsers = await tx.deviceToken.findMany({ where: { userId, platform: "WEB" }, orderBy: [{ lastSeenAt: "desc" }, { id: "asc" }], select: { id: true } });
     const extra = browsers.slice(MAX_BROWSERS_PER_USER).map((b) => b.id);
     if (extra.length) await tx.deviceToken.deleteMany({ where: { id: { in: extra } } });
   });
@@ -142,4 +205,13 @@ export async function registerWebPush(userId: string, sub: WebTarget) {
 
 export async function unregisterWebPush(userId: string, endpoint: string) {
   return (await prisma.deviceToken.deleteMany({ where: { userId, token: endpoint, platform: "WEB" } })).count;
+}
+
+/**
+ * Ends all browser subscriptions of a person. Called whenever their sessions are ended on the server (password change or
+ * reset, role/e-mail change), so a shared PC whose session just ended stops showing their notifications. A browser that is
+ * still signed in re-registers itself on the next page load.
+ */
+export async function endBrowserPush(userId: string, tx: Pick<Prisma.TransactionClient, "deviceToken"> = prisma) {
+  return (await tx.deviceToken.deleteMany({ where: { userId, platform: "WEB" } })).count;
 }

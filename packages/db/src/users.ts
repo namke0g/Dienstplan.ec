@@ -4,6 +4,7 @@ import type { Prisma, Role, User } from "@prisma/client";
 import { AdminError, checkPassword, generatePassword, normEmail } from "./admin";
 import { prisma } from "./client";
 import { actor, ForbiddenError, type Tx } from "./service";
+import { endBrowserPush } from "./push";
 
 const MANAGERS: Role[] = ["ADMIN", "PLANNER"];
 const ALL_ROLES: Role[] = ["EMPLOYEE", "PLANNER", "PDL", "BETRIEBSRAT", "ADMIN"];
@@ -84,6 +85,7 @@ export async function updateManagedUser(actorId: string, userId: string, input: 
       // a changed role or e-mail ends existing sessions, so permissions take effect immediately
       data: { name, email, role, ...(changed.role || changed.email ? { sessionsValidAfter: new Date() } : {}) },
     });
+    if (changed.role || changed.email) await endBrowserPush(t.id, tx);
     await log(tx, actorId, t.id, "UPDATED", { changed, from: { role: t.role, email: t.email }, to: { role, email } });
   });
 }
@@ -117,6 +119,7 @@ export async function resetManagedPassword(actorId: string, userId: string, pass
     const t = await target(tx, me, userId);
     if (t.id === me.id) throw new AdminError("Dein eigenes Passwort änderst du unter „Mein Konto“.");
     await tx.user.update({ where: { id: t.id }, data: { passwordHash: hash, sessionsValidAfter: new Date() } });
+    await endBrowserPush(t.id, tx);
     await log(tx, actorId, t.id, "PASSWORD_RESET");
     return { password: password ? null : pw };
   });
