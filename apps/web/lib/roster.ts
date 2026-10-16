@@ -1,9 +1,19 @@
-import { prisma, toYmd, toDate, daysInMonth, type SnapshotShift } from "@dienstplan/db";
+import { prisma, toYmd, toDate, daysInMonth, wardHolidays, type SnapshotShift } from "@dienstplan/db";
 import { validateRoster, DEFAULT_RULES, type Assignment, type Violation } from "@dienstplan/core";
 
-export async function wardContext(wardId: string) {
+/**
+ * Staff shown in the grids: active employees, plus people who left (deactivated/anonymised) but still have shifts in the
+ * given months, so past rosters keep their rows. New plans only list people who are still active.
+ */
+export async function wardContext(wardId: string, months: string[] = []) {
   const [staff, types] = await Promise.all([
-    prisma.user.findMany({ where: { wardId, active: true, role: "EMPLOYEE" }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
+    prisma.user.findMany({
+      where: {
+        wardId, role: "EMPLOYEE",
+        OR: [{ active: true }, ...(months.length ? [{ shifts: { some: { plan: { wardId, month: { in: months.map((m) => toDate(`${m}-01`)) } } } } }] : [])],
+      },
+      orderBy: { name: "asc" }, select: { id: true, name: true },
+    }),
     prisma.shiftType.findMany({ where: { wardId }, orderBy: { startMin: "asc" } }),
   ]);
   return { staff, types };
@@ -34,3 +44,24 @@ export const describeViolation = (v: Violation, names: Map<string, string>, type
 };
 
 export { daysInMonth };
+
+export const ABSENT_ID = "__absent";
+export const ABSENT_TYPE = { id: ABSENT_ID, code: "–", name: "Abwesend", color: "#94a3b8", kind: "VACATION" as const, paid: true };
+
+/** Sick leave is health data (DSGVO Art. 9): only the person themself, planners and PDL see the reason; everyone else sees "abwesend". */
+export function maskSick<T extends { userId: string; shiftTypeId: string }>(
+  shifts: T[], types: { id: string; kind: string }[], viewerId: string, canSeeSick: boolean,
+): T[] {
+  if (canSeeSick) return shifts;
+  const sick = new Set(types.filter((t) => t.kind === "SICK").map((t) => t.id));
+  return shifts.map((s) => (sick.has(s.shiftTypeId) && s.userId !== viewerId ? { ...s, shiftTypeId: ABSENT_ID } : s));
+}
+export const canSeeSick = (role: string) => role === "PLANNER" || role === "ADMIN" || role === "PDL";
+export const toGridTypes = (types: { id: string; code: string; name: string; color: string; kind: string; paid: boolean }[]) =>
+  types.map(({ id, code, name, color, kind, paid }) => ({ id, code, name, color, kind, paid }));
+
+/** Public holidays and ward days off in a month, as date -> name (for the grids). */
+export async function monthHolidays(wardId: string, month: string): Promise<Record<string, string>> {
+  const days = daysInMonth(`${month}-01`);
+  return Object.fromEntries(await wardHolidays(wardId, days[0]!, days[days.length - 1]!));
+}

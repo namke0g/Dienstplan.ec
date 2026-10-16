@@ -1,17 +1,18 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
-import { prisma, type Role } from "@dienstplan/db";
+import { prisma, sessionStillValid, tokenIssuedAt, type Role } from "@dienstplan/db";
 
 const COOKIE = "session";
-const secret = () => {
+export const secret = () => {
   const s = process.env.SESSION_SECRET;
   if (!s && process.env.NODE_ENV === "production") throw new Error("SESSION_SECRET must be set in production");
   return new TextEncoder().encode(s || "dev-only-insecure-secret-change-me");
 };
 
 export async function createSession(userId: string) {
-  const token = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setExpirationTime("30d").sign(secret());
+  const u = await prisma.user.findUnique({ where: { id: userId }, select: { sessionsValidAfter: true } });
+  const token = await new SignJWT({}).setProtectedHeader({ alg: "HS256" }).setSubject(userId).setAudience("web").setIssuedAt(tokenIssuedAt(u?.sessionsValidAfter ?? null)).setExpirationTime("30d").sign(secret());
   (await cookies()).set(COOKIE, token, {
     httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 60 * 60 * 24 * 30,
   });
@@ -25,9 +26,9 @@ export async function getUser() {
   const token = (await cookies()).get(COOKIE)?.value;
   if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret());
+    const { payload } = await jwtVerify(token, secret(), { audience: "web" });
     const user = await prisma.user.findUnique({ where: { id: String(payload.sub) } });
-    return user?.active ? user : null;
+    return user?.active && sessionStillValid(user.sessionsValidAfter, payload.iat) ? user : null;
   } catch {
     return null;
   }

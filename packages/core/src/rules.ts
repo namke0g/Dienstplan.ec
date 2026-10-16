@@ -4,6 +4,8 @@ export interface ShiftTypeDef {
   startMin: number;
   /** minutes from midnight; if <= startMin the shift ends the next day */
   endMin: number;
+  /** absences (Urlaub, Krank, Sonderurlaub) are all-day and never count as work */
+  kind?: "WORK" | "VACATION" | "SPECIAL_LEAVE" | "SICK";
 }
 
 export interface Assignment {
@@ -36,6 +38,9 @@ export function validateRoster(
   cfg: RuleConfig = DEFAULT_RULES,
 ): Violation[] {
   const byType = new Map(types.map((t) => [t.id, t]));
+  const isWork = (a: Assignment) => (byType.get(a.shiftTypeId)?.kind ?? "WORK") === "WORK";
+  // absences are neither working days, nor do they break rest-time or staffing rules
+  assignments = assignments.filter(isWork);
   const out: Violation[] = [];
   const perUser = new Map<string, Assignment[]>();
   for (const a of assignments) {

@@ -1,0 +1,16 @@
+**/node_modules
+**/.next
+**/.expo
+**/dist
+.git
+.github
+apps/mobile
+backups
+deploy
+*.md
+.env
+.env.*
+**/.env
+**/.env.*
+**/test-results
+**/playwright-report

@@ -25,7 +25,16 @@ describe("ics", () => {
       now,
     });
     expect(ics.endsWith("\r\n")).toBe(true);
-    expect(ics).toContain("a\\,b\;c");
+    expect(ics).toContain("a\\,b\\;c"); // RFC 5545: comma and semicolon are escaped
     for (const line of ics.split("\r\n")) expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
+  });
+});
+
+describe("ics absences", () => {
+  it("exports absences as all-day, transparent events", () => {
+    const ics = buildIcs([{ id: "a1", date: "2026-11-30", type: { id: "U", name: "Urlaub", startMin: 0, endMin: 0, kind: "VACATION" } }], { calName: "x", now });
+    expect(ics).toContain("DTSTART;VALUE=DATE:20261130");
+    expect(ics).toContain("DTEND;VALUE=DATE:20261201");
+    expect(ics).toContain("TRANSP:TRANSPARENT");
   });
 });

@@ -15,6 +15,36 @@ enum Role {
   EMPLOYEE
 }
 
+enum ShiftKind {
+  WORK
+  VACATION
+  SPECIAL_LEAVE
+  SICK
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum SwapStatus {
+  OPEN
+  PENDING_PARTNER
+  PENDING_PLANNER
+  APPLIED
+  DECLINED
+  REJECTED
+  CANCELLED
+  EXPIRED
+}
+
+enum LeaveCountMode {
+  WEEKDAYS
+  ALL_DAYS
+}
+
 enum PlanStatus {
   DRAFT
   IN_REVIEW
@@ -30,14 +60,21 @@ enum Decision {
 }
 
 enum Platform {
-  IOS
-  ANDROID
   WEB
 }
 
 model Ward {
   id       String      @id @default(cuid())
   name     String
+  /// WEEKDAYS: only Mon–Fri leave days are deducted (5-day-week entitlement); ALL_DAYS: every calendar day
+  leaveCountMode LeaveCountMode @default(WEEKDAYS)
+  /// federal state for public holidays (BW, BY, BE, ...); null = no holidays are taken into account
+  state    String?
+  /// false (default, BUrlG § 3): holidays are never leave days. true: holidays count as leave days (some 24/7 rosters / agreements)
+  holidaysAreLeaveDays Boolean @default(false)
+  holidays WardHoliday[]
+  /// how many "Wunschfrei" days an employee may wish per month
+  freeWishesPerMonth Int @default(4)
   users    User[]
   plans    Plan[]
   shiftTypes ShiftType[]
@@ -52,12 +89,30 @@ model User {
   wardId       String
   ward         Ward     @relation(fields: [wardId], references: [id])
   active       Boolean  @default(true)
+  pushEnabled  Boolean  @default(true)
+  /// sessions/tokens issued before this moment are rejected (set on password change and reset)
+  sessionsValidAfter DateTime?
   shifts       Shift[]
   personal     PersonalEntry[]
   devices      DeviceToken[]
   calendar     CalendarToken?
   notifications Notification[]
   approvals    Approval[]
+  leaveRequests LeaveRequest[] @relation("LeaveOwner")
+  leaveDecisions LeaveRequest[] @relation("LeaveDecider")
+  leaveCancellations LeaveRequest[] @relation("LeaveCanceller")
+  wishes       ShiftWish[]
+  preference   ShiftPreference?
+  swapsRequested SwapRequest[] @relation("SwapRequester")
+  swapsReceived SwapRequest[] @relation("SwapPartner")
+  swapsDecided SwapRequest[] @relation("SwapDecider")
+  entitlements LeaveEntitlement[]
+  sickReports  SickReport[] @relation("SickPerson")
+  sickReportsFiled SickReport[] @relation("SickReporter")
+  /// set when the account was anonymised (left the organisation); personal data is gone, roster history stays
+  anonymizedAt DateTime?
+  adminActions UserAudit[] @relation("AuditActor")
+  adminTargets UserAudit[] @relation("AuditTarget")
 }
 
 model ShiftType {
@@ -69,7 +124,17 @@ model ShiftType {
   startMin Int
   endMin   Int
   color    String  @default("#3b82f6")
+  /// WORK shifts have times; every other kind is an all-day absence
+  kind     ShiftKind @default(WORK)
+  /// absence that is deducted from the leave balance (paid Urlaub)
+  consumesLeave Boolean @default(false)
+  /// absence only: paid (Urlaub, Entgeltfortzahlung) or unpaid
+  paid     Boolean @default(true)
   shifts   Shift[]
+  leaveRequests LeaveRequest[]
+  wishes   ShiftWish[]
+  swapsOffered SwapRequest[] @relation("SwapOfferedType")
+  swapsWanted SwapRequest[] @relation("SwapWantedType")
 
   @@unique([wardId, code])
 }
@@ -140,8 +205,14 @@ model DeviceToken {
   userId   String
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   platform Platform
+  /// the Web Push endpoint URL of a browser subscription
   token    String   @unique
+  /// Web Push only: the subscription's encryption keys
+  p256dh   String?
+  auth     String?
   createdAt DateTime @default(now())
+  /// last time this device/browser was (re-)registered; used to keep the newest browsers per person
+  lastSeenAt DateTime @default(now())
 }
 
 model CalendarToken {
@@ -160,6 +231,11 @@ model Notification {
   body        String
   shortNotice Boolean   @default(false)
   createdAt   DateTime  @default(now())
+  /// set when push delivery is finished (success or not), so nothing is sent twice
+  pushAttemptedAt DateTime?
+  /// lease while a delivery run is working on it; an expired lease (e.g. after a crash) lets the next run pick it up again
+  pushClaimedUntil DateTime?
+  /// set when the push provider accepted the message for at least one device
   deliveredAt DateTime?
   readAt      DateTime?
 
@@ -176,4 +252,161 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([planId, createdAt])
+}
+
+model LeaveRequest {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation("LeaveOwner", fields: [userId], references: [id], onDelete: Cascade)
+  /// an absence ShiftType (Urlaub, unbezahlter Urlaub, Sonderurlaub); sick leave cannot be requested
+  shiftTypeId String
+  shiftType   ShiftType   @relation(fields: [shiftTypeId], references: [id])
+  start       DateTime    @db.Date
+  end         DateTime    @db.Date
+  note        String?
+  status      LeaveStatus @default(PENDING)
+  decidedById String?
+  decidedBy   User?       @relation("LeaveDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  decisionComment String?
+  /// YYYY-MM months of an approved request that are not yet in the roster (plan was in review/published); the planner applies them
+  pendingMonths String[]  @default([])
+  /// the employee asked to cancel this approved leave; it stays APPROVED until a decider agrees (then CANCELLED) or declines
+  cancelRequestedAt DateTime?
+  cancelReason      String?
+  /// who agreed to the cancellation of approved leave, and when
+  cancelledById     String?
+  cancelledBy       User?     @relation("LeaveCanceller", fields: [cancelledById], references: [id])
+  cancelledAt       DateTime?
+  createdAt   DateTime    @default(now())
+
+  @@index([userId, start])
+  @@index([status, start])
+}
+
+/// A shift swap/hand-over between colleagues on the published roster. Applied by the planner without a new plan version.
+model SwapRequest {
+  id          String     @id @default(cuid())
+  wardId      String
+  requesterId String
+  requester   User       @relation("SwapRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  /// null while the offer is open to everyone; set when named up front or when a colleague takes it
+  partnerId   String?
+  partner     User?      @relation("SwapPartner", fields: [partnerId], references: [id])
+  date        DateTime   @db.Date
+  shiftTypeId String
+  shiftType   ShiftType  @relation("SwapOfferedType", fields: [shiftTypeId], references: [id])
+  /// the colleague's shift the requester wants in return; null = hand-over without return
+  partnerDate DateTime?  @db.Date
+  partnerShiftTypeId String?
+  partnerShiftType   ShiftType? @relation("SwapWantedType", fields: [partnerShiftTypeId], references: [id])
+  note        String?
+  status      SwapStatus @default(OPEN)
+  decidedById String?
+  decidedBy   User?      @relation("SwapDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  decisionComment String?
+  createdAt   DateTime   @default(now())
+
+  @@index([wardId, status])
+  @@index([requesterId])
+  @@index([partnerId])
+}
+
+/// Yearly leave entitlement of one person. Used days are derived from the roster and requests, never stored.
+model LeaveEntitlement {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  year      Int
+  /// Jahresanspruch in days (half days allowed)
+  entitlement Float
+  /// Resturlaub aus dem Vorjahr
+  carryOver Float    @default(0)
+  /// last day the carry-over may be used; null = never lapses
+  carryOverExpires DateTime? @db.Date
+  /// manual correction, may be negative
+  adjustment Float   @default(0)
+  note      String?
+
+  @@unique([userId, year])
+}
+
+/// Who changed which account (create, role change, deactivate, password reset, anonymise). Kept after anonymisation.
+model UserAudit {
+  id        String   @id @default(cuid())
+  actorId   String?
+  actor     User?    @relation("AuditActor", fields: [actorId], references: [id], onDelete: SetNull)
+  targetId  String?
+  target    User?    @relation("AuditTarget", fields: [targetId], references: [id], onDelete: SetNull)
+  action    String
+  detail    Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+}
+
+/// Extra days off of a ward on top of the state's public holidays (local holidays, e.g. Mariä Himmelfahrt in Bavarian municipalities).
+model WardHoliday {
+  id     String   @id @default(cuid())
+  wardId String
+  ward   Ward     @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  date   DateTime @db.Date
+  name   String
+
+  @@unique([wardId, date])
+}
+
+/// A sickness report (Krankmeldung): the days become sick days in the roster at once. No diagnosis is ever stored.
+model SickReport {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("SickPerson", fields: [userId], references: [id], onDelete: Cascade)
+  wardId      String
+  start       DateTime @db.Date
+  /// expected last sick day; moved on extension or early recovery
+  end         DateTime @db.Date
+  /// optional practical note (e.g. "eAU folgt"); never a diagnosis
+  note        String?
+  reportedById String
+  reportedBy  User     @relation("SickReporter", fields: [reportedById], references: [id])
+  createdAt   DateTime @default(now())
+  /// what the roster had on each sick day before, so early recovery can restore it: [{ date, shiftTypeId|null }]
+  replaced    Json     @default("[]")
+
+  @@index([wardId, end])
+  @@index([userId, start])
+}
+
+enum WishKind {
+  FREE
+  SHIFT
+}
+
+/// An employee's wish for one day of a month that is still being planned. Only the person and the planning side see it.
+model ShiftWish {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wardId      String
+  date        DateTime   @db.Date
+  kind        WishKind
+  /// for kind SHIFT: the wished work shift
+  shiftTypeId String?
+  shiftType   ShiftType? @relation(fields: [shiftTypeId], references: [id])
+  note        String?
+  createdAt   DateTime   @default(now())
+
+  @@unique([userId, date])
+  @@index([wardId, date])
+}
+
+/// Standing preferences of an employee (e.g. "lieber Frühdienst", "keine Nachtdienste"); hints for the planner, not rules.
+model ShiftPreference {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prefer    String[] @default([])
+  avoid     String[] @default([])
+  note      String?
+  updatedAt DateTime @updatedAt
 }

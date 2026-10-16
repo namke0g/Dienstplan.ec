@@ -1,16 +1,22 @@
 import Link from "next/link";
 import type { Role } from "@dienstplan/db";
-import { logoutAction } from "@/app/actions";
+import { LogoutButton } from "@/components/LogoutButton";
 
 const ROLE_LABEL: Record<Role, string> = { ADMIN: "Admin", PLANNER: "Planer:in", PDL: "PDL", BETRIEBSRAT: "Betriebsrat", EMPLOYEE: "Mitarbeiter:in" };
 
-export function Nav({ name, role, unread }: { name: string; role: Role; unread: number }) {
+export function Nav({ name, role, unread, openRequests = 0, openSwaps = 0 }: { name: string; role: Role; unread: number; openRequests?: number; openSwaps?: number }) {
   const links: [string, string][] =
     role === "PLANNER" || role === "ADMIN"
       ? [["/planer", "Planung"], ["/mein-plan", "Mein Plan"]]
       : role === "PDL" || role === "BETRIEBSRAT"
         ? [["/pruefung", "Prüfung"], ["/mein-plan", "Veröffentlichter Plan"]]
         : [["/mein-plan", "Mein Plan"]];
+  links.push(["/urlaub", "Urlaub"]);
+  if (role === "EMPLOYEE") links.push(["/tausch", openSwaps ? `Tausch (${openSwaps})` : "Tausch"], ["/wuensche", "Wünsche"], ["/krank", "Krank melden"]);
+  if (role === "PLANNER" || role === "ADMIN" || role === "PDL") links.push(["/krank", "Krankmeldungen"]);
+  if (role === "PLANNER" || role === "ADMIN" || role === "PDL") links.push(["/urlaubskonto", "Urlaubskonto"], ["/antraege", openRequests ? `Anträge (${openRequests})` : "Anträge"]);
+  if (role === "ADMIN" || role === "PLANNER") links.push(["/benutzer", "Benutzer"]);
+  if (role === "ADMIN") links.push(["/einstellungen", "Einstellungen"]);
   links.push(["/kalender", "Kalender"], ["/benachrichtigungen", unread ? `Mitteilungen (${unread})` : "Mitteilungen"]);
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 backdrop-blur dark:border-slate-800 dark:bg-slate-950/80">
@@ -22,8 +28,8 @@ export function Nav({ name, role, unread }: { name: string; role: Role; unread: 
           ))}
         </nav>
         <div className="flex items-center gap-3 text-sm">
-          <span className="hidden sm:inline text-slate-500">{name} · {ROLE_LABEL[role]}</span>
-          <form action={logoutAction}><button className="btn-ghost !py-1.5">Abmelden</button></form>
+          <Link href="/konto" className="hidden text-slate-500 underline-offset-2 hover:underline sm:inline">{name} · {ROLE_LABEL[role]}</Link>
+          <LogoutButton />
         </div>
       </div>
     </header>

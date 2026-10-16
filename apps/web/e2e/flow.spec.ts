@@ -90,3 +90,60 @@ test("personal entries stay private", async ({ page }) => {
   await page.waitForURL("**/mein-plan");
   await expect(page.getByText("Arzttermin")).toHaveCount(0);
 });
+
+const ym = new Date().toISOString().slice(0, 7);
+
+test("sick leave is only visible to the person, planner and PDL; others see 'Abwesend'", async ({ page }) => {
+  const cell = (who: string, what: string) => page.getByRole("button", { name: `${who}, ${ym}-06: ${what}` });
+  await login(page, "anna@demo.de");
+  await page.goto("/mein-plan");
+  await expect(cell("Ben Schmidt", "Abwesend")).toBeVisible();
+  await expect(page.getByText(/Krank \(/)).toHaveCount(0); // the sick shift types (the nav link "Krank melden" is fine)
+
+  await login(page, "ben@demo.de");
+  await page.goto("/mein-plan");
+  await expect(page.getByText("Krank (mit Entgeltfortzahlung)").first()).toBeVisible();
+
+  await login(page, "pdl@demo.de");
+  await page.goto("/mein-plan");
+  await expect(cell("Ben Schmidt", "Krank (mit Entgeltfortzahlung)")).toBeVisible();
+});
+
+test("planner can assign all five absence types and the employee sees paid/unpaid", async ({ page }) => {
+  await login(page, "planer@demo.de");
+  await page.goto("/planer");
+  const day = `${ym}-02`;
+  const types = ["Urlaub", "Unbezahlter Urlaub", "Krank (mit Entgeltfortzahlung)", "Krank (ohne Entgelt)", "Sonderurlaub"];
+  for (const t of types) {
+    await page.getByRole("button", { name: new RegExp(`David Koch, ${day}`) }).click();
+    await page.getByRole("menuitem", { name: new RegExp(`^\\w+\\s*${t.replace(/[()]/g, "\\$&")}`) }).click();
+    await expect(page.getByRole("button", { name: `David Koch, ${day}: ${t}` })).toBeVisible();
+    // the first edit of a published plan starts version 2 and re-renders the grid; wait for it to settle
+    await expect(page.getByText("Entwurf")).toBeVisible();
+  }
+  await expect(page.getByText("Regelverstöße")).toHaveCount(0);
+  await page.goto("/planer");
+  await expect(page.getByRole("button", { name: `David Koch, ${day}: Sonderurlaub` })).toBeVisible();
+
+  await login(page, "anna@demo.de");
+  await page.goto("/mein-plan");
+  // seeded, published vacation for Anna (the planner's new draft edits stay invisible to staff)
+  await expect(page.getByText(/^Urlaub\s*bezahlt$/).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: `David Koch, ${ym}-02: Sonderurlaub` })).toHaveCount(0);
+});
+
+test("repeated wrong passwords lock the account out for a while, even for the right password", async ({ page }) => {
+  const email = "lockout-test@demo.de"; // unknown account: the limiter works per e-mail and IP, not per existing user
+  for (let i = 0; i < 5; i++) {
+    await page.goto("/login");
+    await page.getByLabel("E-Mail").fill(email);
+    await page.getByLabel("Passwort").fill(`wrong-${i}`);
+    await page.getByRole("button", { name: "Anmelden" }).click();
+    await expect(page.locator("p[role=alert]")).toContainText("falsch");
+  }
+  await page.goto("/login");
+  await page.getByLabel("E-Mail").fill(email);
+  await page.getByLabel("Passwort").fill("anything");
+  await page.getByRole("button", { name: "Anmelden" }).click();
+  await expect(page.locator("p[role=alert]")).toContainText("Zu viele Fehlversuche");
+});

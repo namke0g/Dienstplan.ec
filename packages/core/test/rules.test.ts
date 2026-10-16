@@ -63,3 +63,28 @@ describe("roster rules", () => {
     expect(v).toEqual([{ rule: "MIN_STAFFING", date: "2026-11-02", shiftTypeId: "F", have: 1, need: 2 }]);
   });
 });
+
+describe("absences", () => {
+  const withAbs: ShiftTypeDef[] = [...types, { id: "U", startMin: 0, endMin: 0, kind: "VACATION" }, { id: "K", startMin: 0, endMin: 0, kind: "SICK" }];
+
+  it("do not trigger rest, consecutive-day or staffing violations", () => {
+    const a = Array.from({ length: 10 }, (_, i) => ({ userId: "a", date: `2026-11-${String(i + 2).padStart(2, "0")}`, shiftTypeId: i % 2 ? "K" : "U" }));
+    expect(validateRoster(a, withAbs, { minRestHours: 11, maxConsecutiveDays: 6, minStaffing: {} })).toEqual([]);
+  });
+
+  it("an absence between two shifts does not make them consecutive", () => {
+    const a = [
+      ...Array.from({ length: 6 }, (_, i) => ({ userId: "a", date: `2026-11-${String(i + 2).padStart(2, "0")}`, shiftTypeId: "F" })),
+      { userId: "a", date: "2026-11-08", shiftTypeId: "U" },
+      { userId: "a", date: "2026-11-09", shiftTypeId: "F" },
+    ];
+    expect(validateRoster(a, withAbs)).toEqual([]);
+  });
+
+  it("do not count towards minimum staffing", () => {
+    const v = validateRoster([{ userId: "a", date: "2026-11-02", shiftTypeId: "K" }, { userId: "b", date: "2026-11-02", shiftTypeId: "F" }], withAbs, {
+      minRestHours: 11, maxConsecutiveDays: 6, minStaffing: { F: 2 },
+    });
+    expect(v).toEqual([{ rule: "MIN_STAFFING", date: "2026-11-02", shiftTypeId: "F", have: 1, need: 2 }]);
+  });
+});

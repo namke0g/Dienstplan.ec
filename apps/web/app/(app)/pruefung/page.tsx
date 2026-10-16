@@ -1,6 +1,6 @@
 import { prisma, daysInMonth, toYmd } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { describeViolation, draftShifts, violationsFor, wardContext } from "@/lib/roster";
+import { ABSENT_TYPE, canSeeSick, describeViolation, draftShifts, maskSick, toGridTypes, violationsFor, monthHolidays, wardContext } from "@/lib/roster";
 import { monthLabel } from "@/lib/format";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Legend, RosterGrid } from "@/components/RosterGrid";
@@ -9,11 +9,11 @@ import { reviewAction } from "@/app/actions";
 export default async function PruefungPage({ searchParams }: { searchParams: Promise<{ err?: string }> }) {
   const err = (await searchParams).err;
   const me = await requireUser(["PDL", "BETRIEBSRAT"]);
-  const { staff, types } = await wardContext(me.wardId);
   const plans = await prisma.plan.findMany({ where: { wardId: me.wardId, status: { in: ["IN_REVIEW", "CHANGES_REQUESTED", "APPROVED"] } }, orderBy: { month: "asc" }, include: { approvals: true } });
+  const { staff, types } = await wardContext(me.wardId, plans.map((p) => toYmd(p.month).slice(0, 7)));
   const names = new Map(staff.map((s) => [s.id, s.name]));
   const typeName = new Map(types.map((t) => [t.id, t.name]));
-  const gridTypes = types.map(({ id, code, name, color }) => ({ id, code, name, color }));
+  const gridTypes = canSeeSick(me.role) ? toGridTypes(types) : [...toGridTypes(types.filter((t) => t.kind !== "SICK")), ABSENT_TYPE];
 
   return (
     <>
@@ -22,8 +22,9 @@ export default async function PruefungPage({ searchParams }: { searchParams: Pro
       {plans.length === 0 && <p className="card text-sm text-slate-500">Keine Pläne zur Prüfung.</p>}
       {await Promise.all(plans.map(async (p) => {
         const month = toYmd(p.month).slice(0, 7);
-        const shifts = await draftShifts(p.id);
-        const violations = violationsFor(shifts, types);
+        const all = await draftShifts(p.id);
+        const violations = violationsFor(all, types);
+        const shifts = maskSick(all, types, me.id, canSeeSick(me.role));
         const mine = p.approvals.find((a) => a.version === p.version && a.role === me.role);
         const canDecide = p.status === "IN_REVIEW" && mine?.decision === "PENDING";
         return (
@@ -33,7 +34,7 @@ export default async function PruefungPage({ searchParams }: { searchParams: Pro
               {mine && mine.decision !== "PENDING" && <span className="text-sm">Deine Entscheidung: {mine.decision === "APPROVED" ? "✅ genehmigt" : "❌ abgelehnt"}</span>}
             </div>
             <Legend types={gridTypes} />
-            <RosterGrid editable={false} days={daysInMonth(`${month}-01`)} staff={staff} types={gridTypes}
+            <RosterGrid editable={false} days={daysInMonth(`${month}-01`)} staff={staff} types={gridTypes} holidays={await monthHolidays(me.wardId, month)}
               shifts={Object.fromEntries(shifts.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]))}
               flagged={violations.flatMap((v) => ("userId" in v ? [`${v.userId}|${v.date}`] : []))} />
             {violations.length > 0 && (
