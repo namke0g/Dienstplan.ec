@@ -10,7 +10,8 @@ Dienstplanung für Stationen: Der Plan wird von der Planung erstellt und geht er
 | Mitarbeiterportal: veröffentlichter Plan, Teamansicht, persönliche Einträge | ✅ |
 | Kalender-Abo (ICS, stabile UIDs, widerrufbarer Link) für iOS & Google | ✅ |
 | In-App-Mitteilungen (Plan veröffentlicht / Dienst geändert, Kurzfristig-Markierung) | ✅ |
-| Push (Expo / Web Push), Mobile App (Expo) | ⏳ nächster Schritt |
+| Web Push (VAPID, generischer Text, Retry-Endpoint `/api/push/dispatch`) | ✅ |
+| Mobile App (Expo, nutzt denselben Dispatcher) | ⏳ nächster Schritt |
 | Tauschbörse, Zeiterfassung, Druck/PDF, KIS/DATEV | ⏳ später |
 
 ## Aufbau

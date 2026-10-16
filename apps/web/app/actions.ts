@@ -3,7 +3,7 @@
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate } from "@dienstplan/db";
+import { prisma, setShift, submitPlan, reviewPlan, publishPlan, dispatchPending, webPushSender, toDate } from "@dienstplan/db";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 
 export async function loginAction(_: string | null, form: FormData): Promise<string | null> {
@@ -37,6 +37,9 @@ export async function submitAction(planId: string) {
 export async function publishAction(planId: string) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await publishPlan(planId, me.id);
+  // best effort: a failed push never fails the publish; /api/push/dispatch retries
+  const send = webPushSender();
+  if (send) await dispatchPending(send).catch((e) => console.error("push dispatch failed", e));
   revalidatePath("/planer");
   revalidatePath("/mein-plan");
 }
