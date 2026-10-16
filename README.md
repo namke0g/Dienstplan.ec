@@ -36,8 +36,9 @@ Mitarbeitende sehen immer den **zuletzt veröffentlichten Snapshot**. Änderunge
 Die schnellste Art, alles auszuprobieren – nur [Docker](https://docs.docker.com/get-docker/) wird gebraucht:
 ```bash
 git clone https://github.com/namke0g/Dienstplan.ec.git && cd Dienstplan.ec
-docker compose -f docker-compose.demo.yml up --build
+docker compose -f docker-compose.demo.yml up
 ```
+Docker lädt dabei die fertigen Images herunter (es wird nichts gebaut).
 Dann **http://localhost:3000** öffnen. Alle Demo-Konten haben das Passwort `demo1234`:
 
 | Konto | Rolle | Ausprobieren |

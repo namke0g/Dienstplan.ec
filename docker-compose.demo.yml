@@ -1,5 +1,6 @@
 # Demo / test stack: try Dienstplan on your own computer, no domain or HTTPS needed.
-#   docker compose -f docker-compose.demo.yml up --build
+#   docker compose -f docker-compose.demo.yml up
+# It downloads the released images (nothing is built on your computer). DIENSTPLAN_VERSION=0.1.0 picks a release.
 # then open http://localhost:3000 (demo logins below; password demo1234). Data persists in the "demodata" volume;
 # remove it with `docker compose -f docker-compose.demo.yml down -v` to start fresh. NOT for production (fixed secrets).
 name: dienstplan-demo
@@ -18,7 +19,7 @@ services:
       retries: 20
 
   migrate:
-    build: { context: ., target: migrate }
+    image: ghcr.io/namke0g/dienstplan.ec/migrate:${DIENSTPLAN_VERSION:-latest}
     environment: { DATABASE_URL: *db-url }
     # schema, then the demo ward with staff, shifts and plans (only into an empty database)
     command: ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm exec tsx prisma/seed-if-empty.ts"]
@@ -26,7 +27,7 @@ services:
     restart: "no"
 
   web:
-    build: { context: ., target: web }
+    image: ghcr.io/namke0g/dienstplan.ec/web:${DIENSTPLAN_VERSION:-latest}
     ports: ["3000:3000"] # also reachable from phones in the same network: http://<this computer's IP>:3000
     environment:
       DATABASE_URL: *db-url
