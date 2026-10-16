@@ -11,9 +11,11 @@ Dienstplanung für Stationen: Der Plan wird von der Planung erstellt und geht er
 | Abwesenheiten: Urlaub, unbezahlter Urlaub, Krank mit/ohne Entgelt, Sonderurlaub (zählen nicht als Arbeitstage/Besetzung; Krankheit für Kolleg:innen nur als „abwesend“) | ✅ |
 | Kalender-Abo (ICS, stabile UIDs, widerrufbarer Link) für iOS & Google | ✅ |
 | In-App-Mitteilungen (Plan veröffentlicht / Dienst geändert, Kurzfristig-Markierung) | ✅ |
+| Urlaubs-/Abwesenheitsanträge (Urlaub, unbezahlt, Sonderurlaub): Mitarbeitende beantragen im Portal und in der App, Planung oder PDL entscheidet; genehmigt wird automatisch in den Dienstplan geschrieben | ✅ |
 | Push-Benachrichtigungen iOS/Android (Expo → APNs/FCM): Plan veröffentlicht, Dienständerung (kurzfristig = hohe Priorität), Prüfung angefordert, Entscheidung | ✅ |
 | Mobile App (Expo/React Native): Login, Mein Plan, Team, Mitteilungen, Kalender-Abo, Offline-Cache, Push an/aus | ✅ (noch nicht auf echtem Gerät getestet) |
 | Web Push (PWA) | ⏳ später |
+| Resturlaub-/Urlaubskonto, Krankmeldung durch Mitarbeitende, Storno genehmigter Anträge | ⏳ später |
 | Tauschbörse, Zeiterfassung, Druck/PDF, KIS/DATEV | ⏳ später |
 
 ## Aufbau

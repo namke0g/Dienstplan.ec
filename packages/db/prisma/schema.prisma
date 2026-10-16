@@ -22,6 +22,13 @@ enum ShiftKind {
   SICK
 }
 
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
 enum PlanStatus {
   DRAFT
   IN_REVIEW
@@ -66,6 +73,8 @@ model User {
   calendar     CalendarToken?
   notifications Notification[]
   approvals    Approval[]
+  leaveRequests LeaveRequest[] @relation("LeaveOwner")
+  leaveDecisions LeaveRequest[] @relation("LeaveDecider")
 }
 
 model ShiftType {
@@ -82,6 +91,7 @@ model ShiftType {
   /// absence only: paid (Urlaub, Entgeltfortzahlung) or unpaid
   paid     Boolean @default(true)
   shifts   Shift[]
+  leaveRequests LeaveRequest[]
 
   @@unique([wardId, code])
 }
@@ -191,4 +201,27 @@ model AuditLog {
   createdAt DateTime @default(now())
 
   @@index([planId, createdAt])
+}
+
+model LeaveRequest {
+  id          String      @id @default(cuid())
+  userId      String
+  user        User        @relation("LeaveOwner", fields: [userId], references: [id], onDelete: Cascade)
+  /// an absence ShiftType (Urlaub, unbezahlter Urlaub, Sonderurlaub); sick leave cannot be requested
+  shiftTypeId String
+  shiftType   ShiftType   @relation(fields: [shiftTypeId], references: [id])
+  start       DateTime    @db.Date
+  end         DateTime    @db.Date
+  note        String?
+  status      LeaveStatus @default(PENDING)
+  decidedById String?
+  decidedBy   User?       @relation("LeaveDecider", fields: [decidedById], references: [id])
+  decidedAt   DateTime?
+  decisionComment String?
+  /// YYYY-MM months of an approved request that are not yet in the roster (plan was in review/published); the planner applies them
+  pendingMonths String[]  @default([])
+  createdAt   DateTime    @default(now())
+
+  @@index([userId, start])
+  @@index([status, start])
 }
