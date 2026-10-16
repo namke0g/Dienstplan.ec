@@ -25,7 +25,7 @@ export function Nav({ name, role, unread, openRequests = 0, openSwaps = 0 }: { n
           ))}
         </nav>
         <div className="flex items-center gap-3 text-sm">
-          <span className="hidden sm:inline text-slate-500">{name} · {ROLE_LABEL[role]}</span>
+          <Link href="/konto" className="hidden text-slate-500 underline-offset-2 hover:underline sm:inline">{name} · {ROLE_LABEL[role]}</Link>
           <form action={logoutAction}><button className="btn-ghost !py-1.5">Abmelden</button></form>
         </div>
       </div>

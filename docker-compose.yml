@@ -1,0 +1,82 @@
+# Production stack: PostgreSQL, one-shot migrations, the app, Caddy (automatic HTTPS) and daily backups.
+# Start:  cp .env.example .env  (fill it in)  &&  docker compose up -d --build
+name: dienstplan
+
+x-db-url: &db-url postgresql://dienstplan:${POSTGRES_PASSWORD:?Bitte POSTGRES_PASSWORD in .env setzen}@db:5432/dienstplan
+
+services:
+  db:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dienstplan
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Bitte POSTGRES_PASSWORD in .env setzen}
+      POSTGRES_DB: dienstplan
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dienstplan -d dienstplan"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    # no published ports: the database is only reachable from this stack
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment:
+      DATABASE_URL: *db-url
+    depends_on:
+      db: { condition: service_healthy }
+    restart: "no"
+
+  web:
+    build: { context: ., target: web }
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: *db-url
+      SESSION_SECRET: ${SESSION_SECRET:?Bitte SESSION_SECRET in .env setzen (openssl rand -hex 32)}
+      TRUST_PROXY: "1" # client IPs come from Caddy; needed for the login rate limit
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:?Bitte DOMAIN in .env setzen}
+      ACME_EMAIL: ${ACME_EMAIL:?Bitte ACME_EMAIL in .env setzen}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+  backup:
+    image: postgres:16-bookworm
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    environment:
+      PGHOST: db
+      PGUSER: dienstplan
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Bitte POSTGRES_PASSWORD in .env setzen}
+      PGDATABASE: dienstplan
+      BACKUP_DIR: /backups
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+    volumes:
+      - ./deploy/backup.sh:/backup.sh:ro
+      - ./backups:/backups
+    depends_on:
+      db: { condition: service_healthy }
+
+volumes:
+  dbdata:
+  caddy_data:
+  caddy_config:

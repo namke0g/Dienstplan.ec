@@ -85,6 +85,8 @@ model User {
   ward         Ward     @relation(fields: [wardId], references: [id])
   active       Boolean  @default(true)
   pushEnabled  Boolean  @default(true)
+  /// sessions/tokens issued before this moment are rejected (set on password change and reset)
+  sessionsValidAfter DateTime?
   shifts       Shift[]
   personal     PersonalEntry[]
   devices      DeviceToken[]

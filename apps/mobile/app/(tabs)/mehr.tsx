@@ -47,6 +47,7 @@ export default function Mehr() {
         <Button ghost title="In Google Kalender öffnen" onPress={() => calendar("google")} />
         <Button ghost title="Link kopieren" onPress={() => calendar("copy")} />
       </Card>
+      <Button ghost title="Passwort ändern" onPress={() => router.push("/password")} />
       <Button ghost title="Abmelden" onPress={logout} />
     </ScrollView>
   );

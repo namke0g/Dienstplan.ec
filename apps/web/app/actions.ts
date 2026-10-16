@@ -1,20 +1,26 @@
 "use server";
 
 import bcrypt from "bcryptjs";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, deliverPendingNotifications, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
   createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
-  setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError } from "@dienstplan/db";
+  setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError } from "@dienstplan/db";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
+import { clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess } from "@/lib/rateLimit";
 
 export async function loginAction(_: string | null, form: FormData): Promise<string | null> {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
+  const ip = clientIp(await headers());
+  const wait = loginBlockedFor(ip, email);
+  if (wait !== null) return `Zu viele Fehlversuche. Bitte versuche es in ${Math.ceil(wait / 60)} Minute(n) erneut.`;
   const user = await prisma.user.findUnique({ where: { email } });
   // compare against a dummy hash when the user is unknown to keep timing similar
   const ok = await bcrypt.compare(password, user?.passwordHash ?? "$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv");
-  if (!user || !user.active || !ok) return "E-Mail oder Passwort ist falsch.";
+  if (!user || !user.active || !ok) { recordLoginFailure(ip, email); return "E-Mail oder Passwort ist falsch."; }
+  recordLoginSuccess(ip, email);
   await createSession(user.id);
   redirect(homeFor(user.role));
 }
@@ -177,4 +183,23 @@ export async function rolloverAction(year: number, form: FormData) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await balanceGuard(year, () => rolloverYear(me.id, year, String(form.get("expires") ?? "") || null));
   redirect(`/urlaubskonto?y=${year + 1}&ok=rollover`);
+}
+
+export async function changePasswordAction(_: string | null, form: FormData): Promise<string | null> {
+  const me = await requireUser();
+  const current = String(form.get("current") ?? "");
+  const next = String(form.get("next") ?? "");
+  if (next !== String(form.get("repeat") ?? "")) return "Die beiden neuen Passwörter stimmen nicht überein.";
+  const ip = clientIp(await headers());
+  const wait = loginBlockedFor(ip, me.email);
+  if (wait !== null) return `Zu viele Fehlversuche. Bitte versuche es in ${Math.ceil(wait / 60)} Minute(n) erneut.`;
+  try {
+    await changePassword(me.id, current, next);
+  } catch (e) {
+    if (e instanceof AdminError) { if (/aktuelle Passwort/.test(e.message)) recordLoginFailure(ip, me.email); return e.message; }
+    throw e;
+  }
+  recordLoginSuccess(ip, me.email);
+  await createSession(me.id); // other sessions were just invalidated; keep this one signed in
+  redirect("/konto?ok=1");
 }

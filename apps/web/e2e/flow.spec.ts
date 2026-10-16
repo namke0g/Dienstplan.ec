@@ -131,3 +131,19 @@ test("planner can assign all five absence types and the employee sees paid/unpai
   await expect(page.getByText(/^Urlaub\s*bezahlt$/).first()).toBeVisible();
   await expect(page.getByRole("button", { name: `David Koch, ${ym}-02: Sonderurlaub` })).toHaveCount(0);
 });
+
+test("repeated wrong passwords lock the account out for a while, even for the right password", async ({ page }) => {
+  const email = "lockout-test@demo.de"; // unknown account: the limiter works per e-mail and IP, not per existing user
+  for (let i = 0; i < 5; i++) {
+    await page.goto("/login");
+    await page.getByLabel("E-Mail").fill(email);
+    await page.getByLabel("Passwort").fill(`wrong-${i}`);
+    await page.getByRole("button", { name: "Anmelden" }).click();
+    await expect(page.locator("p[role=alert]")).toContainText("falsch");
+  }
+  await page.goto("/login");
+  await page.getByLabel("E-Mail").fill(email);
+  await page.getByLabel("Passwort").fill("anything");
+  await page.getByRole("button", { name: "Anmelden" }).click();
+  await expect(page.locator("p[role=alert]")).toContainText("Zu viele Fehlversuche");
+});
