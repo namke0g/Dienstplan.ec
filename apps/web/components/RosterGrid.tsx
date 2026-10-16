@@ -3,7 +3,7 @@ import { useState, useTransition } from "react";
 import { WEEKDAYS, wd, isWeekend } from "@/lib/format";
 import { setShiftAction } from "@/app/actions";
 
-export interface GridType { id: string; code: string; name: string; color: string }
+export interface GridType { id: string; code: string; name: string; color: string; kind?: string }
 interface Props {
   planId?: string;
   editable: boolean;
@@ -19,25 +19,39 @@ export function RosterGrid({ planId, editable, days, staff, types, shifts: initi
   const [shifts, setShifts] = useState(initial);
   const [, start] = useTransition();
   const byId = new Map(types.map((t) => [t.id, t]));
-  const cycle = [...types.map((t) => t.id), null];
+  const [brush, setBrush] = useState<string | null>(types[0]?.id ?? null);
   const bad = new Set(flagged);
 
   function click(userId: string, date: string) {
     if (!editable || !planId) return;
     const key = `${userId}|${date}`;
-    const next = cycle[(cycle.indexOf(shifts[key] ?? null) + 1) % cycle.length] ?? null;
+    // the selected brush paints the cell; painting the same type again (or the eraser) clears it
+    const next = brush && shifts[key] !== brush ? brush : null;
     setShifts((s) => { const n = { ...s }; if (next) n[key] = next; else delete n[key]; return n; });
     start(() => setShiftAction(planId, userId, date, next));
   }
 
   return (
+    <>
+    {editable && (
+      <div role="radiogroup" aria-label="Dienst oder Abwesenheit wählen" className="flex flex-wrap gap-2 text-xs">
+        {types.map((t) => (
+          <button key={t.id} type="button" role="radio" aria-checked={brush === t.id} onClick={() => setBrush(t.id)}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 ${brush === t.id ? "border-brand ring-2 ring-brand" : "border-slate-200 dark:border-slate-700"}`}>
+            <span className="inline-grid h-5 min-w-5 place-items-center rounded px-1 font-semibold text-white" style={{ background: t.color }}>{t.code}</span>{t.name}
+          </button>
+        ))}
+        <button type="button" role="radio" aria-checked={brush === null} onClick={() => setBrush(null)}
+          className={`rounded-lg border px-2 py-1 ${brush === null ? "border-brand ring-2 ring-brand" : "border-slate-200 dark:border-slate-700"}`}>Frei (löschen)</button>
+      </div>
+    )}
     <div className="card overflow-x-auto !p-0">
       <table className="w-full border-separate border-spacing-0 text-xs">
         <thead>
           <tr>
             <th className="sticky left-0 z-10 min-w-36 border-b border-slate-200 bg-white p-2 text-left dark:border-slate-800 dark:bg-slate-900">Mitarbeiter:in</th>
             {days.map((d) => (
-              <th key={d} className={`min-w-9 border-b border-slate-200 p-1 text-center font-medium dark:border-slate-800 ${isWeekend(d) ? "bg-slate-100 dark:bg-slate-800" : ""}`}>
+              <th key={d} className={`min-w-10 border-b border-slate-200 p-1 text-center font-medium dark:border-slate-800 ${isWeekend(d) ? "bg-slate-100 dark:bg-slate-800" : ""}`}>
                 <div className="text-slate-500">{WEEKDAYS[wd(d)]}</div>{Number(d.slice(8))}
               </th>
             ))}
@@ -66,6 +80,7 @@ export function RosterGrid({ planId, editable, days, staff, types, shifts: initi
         </tbody>
       </table>
     </div>
+    </>
   );
 }
 
@@ -74,7 +89,7 @@ export function Legend({ types }: { types: GridType[] }) {
     <div className="flex flex-wrap gap-3 text-xs text-slate-600 dark:text-slate-300">
       {types.map((t) => (
         <span key={t.id} className="inline-flex items-center gap-1.5">
-          <span className="inline-grid h-5 w-5 place-items-center rounded font-semibold text-white" style={{ background: t.color }}>{t.code}</span>{t.name}
+          <span className="inline-grid h-5 min-w-5 place-items-center rounded px-1 font-semibold text-white" style={{ background: t.color }}>{t.code}</span>{t.name}
         </span>
       ))}
     </div>

@@ -4,7 +4,7 @@ import { describeViolation, draftShifts, violationsFor, wardContext } from "@/li
 import { fmtTime, monthParam } from "@/lib/format";
 import { MonthNav } from "@/components/MonthNav";
 import { StatusBadge } from "@/components/StatusBadge";
-import { Legend, RosterGrid } from "@/components/RosterGrid";
+import { RosterGrid } from "@/components/RosterGrid";
 import { publishAction, submitAction } from "@/app/actions";
 
 export default async function PlanerPage({ searchParams }: { searchParams: Promise<{ m?: string }> }) {
@@ -48,11 +48,10 @@ export default async function PlanerPage({ searchParams }: { searchParams: Promi
         })}
       </div>
 
-      <Legend types={types} />
-      <RosterGrid key={`${plan.id}-${plan.version}-${plan.status}`} planId={plan.id} editable={editable && plan.status !== "IN_REVIEW"} days={daysInMonth(`${month}-01`)} staff={staff}
-        types={types.map(({ id, code, name, color }) => ({ id, code, name, color }))}
+            <RosterGrid key={`${plan.id}-${plan.version}-${plan.status}`} planId={plan.id} editable={editable && plan.status !== "IN_REVIEW"} days={daysInMonth(`${month}-01`)} staff={staff}
+        types={types.map(({ id, code, name, color, kind }) => ({ id, code, name, color, kind }))}
         shifts={Object.fromEntries(shifts.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]))} flagged={flagged} />
-      <p className="text-xs text-slate-500">Klick auf ein Feld wechselt den Dienst: {types.map((t) => `${t.code} ${fmtTime(t.startMin)}–${fmtTime(t.endMin)}`).join(" · ")} · frei.</p>
+      <p className="text-xs text-slate-500">Dienst oder Abwesenheit oben wählen, dann auf ein Feld klicken. Nochmal klicken löscht den Eintrag. {types.filter((t) => t.kind === "WORK").map((t) => `${t.code} ${fmtTime(t.startMin)}–${fmtTime(t.endMin)}`).join(" · ")}. Abwesenheiten gelten ganztägig und zählen nicht als Arbeitstag.</p>
 
       {violations.length > 0 && (
         <div className="card border-rose-200">

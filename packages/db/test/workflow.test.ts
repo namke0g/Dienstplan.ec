@@ -63,4 +63,21 @@ describe("plan workflow against Postgres", () => {
     await submitPlan(plan.id, planner);
     await expect(reviewPlan(plan.id, planner, "APPROVED")).rejects.toBeInstanceOf(ForbiddenError);
   });
+
+  it("all five leave types can be set, published, and are kept out of the work rules", async () => {
+    const leave = await prisma.shiftType.findMany({ where: { kind: { not: "WORK" } } });
+    expect(leave.map((t) => t.kind).sort()).toEqual(["SICK_PAID", "SICK_UNPAID", "SPECIAL_LEAVE", "UNPAID_LEAVE", "VACATION"]);
+
+    const plan = await getOrCreatePlan(wardId, "2031-04-01");
+    for (const [i, t] of leave.entries()) await setShift(plan.id, ben, planner, `2031-04-0${i + 1}`, t.id);
+    await submitPlan(plan.id, planner);
+    await reviewPlan(plan.id, pdl, "APPROVED");
+    await reviewPlan(plan.id, br, "APPROVED");
+    await publishPlan(plan.id, planner);
+
+    const p = await prisma.plan.findUniqueOrThrow({ where: { id: plan.id } });
+    const snap = p.publishedSnapshot as { shiftTypeId: string }[];
+    expect(snap.map((s) => s.shiftTypeId).sort()).toEqual(leave.map((t) => t.id).sort());
+    expect(await prisma.notification.count({ where: { userId: ben, type: "PLAN_PUBLISHED" } })).toBeGreaterThan(0);
+  });
 });

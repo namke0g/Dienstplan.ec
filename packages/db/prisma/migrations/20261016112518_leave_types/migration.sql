@@ -1,0 +1,5 @@
+-- CreateEnum
+CREATE TYPE "ShiftKind" AS ENUM ('WORK', 'VACATION', 'UNPAID_LEAVE', 'SICK_PAID', 'SICK_UNPAID', 'SPECIAL_LEAVE');
+
+-- AlterTable
+ALTER TABLE "ShiftType" ADD COLUMN     "kind" "ShiftKind" NOT NULL DEFAULT 'WORK';

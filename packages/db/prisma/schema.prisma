@@ -23,6 +23,15 @@ enum PlanStatus {
   PUBLISHED
 }
 
+enum ShiftKind {
+  WORK
+  VACATION
+  UNPAID_LEAVE
+  SICK_PAID
+  SICK_UNPAID
+  SPECIAL_LEAVE
+}
+
 enum Decision {
   PENDING
   APPROVED
@@ -69,6 +78,8 @@ model ShiftType {
   startMin Int
   endMin   Int
   color    String  @default("#3b82f6")
+  /// WORK for normal shifts; the rest are absences (leave types)
+  kind     ShiftKind @default(WORK)
   shifts   Shift[]
 
   @@unique([wardId, code])

@@ -1,5 +1,5 @@
 import { prisma, toYmd, toDate, daysInMonth, type SnapshotShift } from "@dienstplan/db";
-import { validateRoster, DEFAULT_RULES, type Assignment, type Violation } from "@dienstplan/core";
+import { validateRoster, type ShiftKind, DEFAULT_RULES, type Assignment, type Violation } from "@dienstplan/core";
 
 export async function wardContext(wardId: string) {
   const [staff, types] = await Promise.all([
@@ -20,7 +20,7 @@ export async function draftShifts(planId: string): Promise<SnapshotShift[]> {
 
 export const snapshotOf = (p: { publishedSnapshot: unknown } | null): SnapshotShift[] => ((p?.publishedSnapshot ?? []) as SnapshotShift[]);
 
-export function violationsFor(shifts: SnapshotShift[], types: { id: string; startMin: number; endMin: number }[], minStaffing: Record<string, number> = {}): Violation[] {
+export function violationsFor(shifts: SnapshotShift[], types: { id: string; startMin: number; endMin: number; kind?: ShiftKind }[], minStaffing: Record<string, number> = {}): Violation[] {
   const a: Assignment[] = shifts.map((s) => ({ userId: s.userId, date: s.date, shiftTypeId: s.shiftTypeId }));
   return validateRoster(a, types, { ...DEFAULT_RULES, minStaffing });
 }

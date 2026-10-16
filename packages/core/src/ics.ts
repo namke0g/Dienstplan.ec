@@ -1,4 +1,4 @@
-import type { ShiftTypeDef } from "./rules";
+import { isLeave, type ShiftTypeDef } from "./rules";
 
 export interface IcsShift {
   /** stable id (DB id of the Shift row) so calendar apps update instead of duplicating */
@@ -50,6 +50,21 @@ export function buildIcs(shifts: IcsShift[], opts: { calName: string; domain?: s
     "X-PUBLISHED-TTL:PT1H",
   ];
   for (const s of shifts) {
+    if (isLeave(s.type.kind)) {
+      // absences are all-day events (DTEND is exclusive)
+      lines.push(
+        "BEGIN:VEVENT",
+        `UID:shift-${s.id}@${domain}`,
+        `DTSTAMP:${dtstamp}`,
+        `SEQUENCE:${s.sequence ?? 0}`,
+        `DTSTART;VALUE=DATE:${stamp(s.date, 0).slice(0, 8)}`,
+        `DTEND;VALUE=DATE:${stamp(s.date, 0, 1).slice(0, 8)}`,
+        `SUMMARY:${esc(s.type.name)}`,
+        "TRANSP:TRANSPARENT",
+        "END:VEVENT",
+      );
+      continue;
+    }
     const overnight = s.type.endMin <= s.type.startMin;
     lines.push(
       "BEGIN:VEVENT",

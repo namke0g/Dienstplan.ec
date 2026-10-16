@@ -90,3 +90,28 @@ test("personal entries stay private", async ({ page }) => {
   await page.waitForURL("**/mein-plan");
   await expect(page.getByText("Arzttermin")).toHaveCount(0);
 });
+
+test("planner can paint all five leave types and staff see them", async ({ page }) => {
+  await login(page, "planer@demo.de");
+  await page.waitForURL("**/planer");
+  await page.getByRole("link", { name: "Nächster Monat" }).click();
+  const leave = [
+    ["Urlaub", "U"], ["Unbezahlter Urlaub", "UU"], ["Krank (bezahlt)", "K"], ["Krank (unbezahlt)", "KU"], ["Sonderurlaub", "SU"],
+  ] as const;
+  const cells = page.getByRole("button", { name: /^Felix Braun, \d{4}-\d{2}-\d{2}:/ });
+  for (const [i, [name, code]] of leave.entries()) {
+    await page.getByRole("radio", { name: `${code} ${name}`, exact: true }).click();
+    await cells.nth(i).click();
+    await expect(cells.nth(i)).toHaveAttribute("aria-label", new RegExp(`: ${name.replace(/[()]/g, "\\$&")}$`));
+  }
+  await page.reload();
+  for (const [i, [name]] of leave.entries()) {
+    await expect(cells.nth(i)).toHaveAttribute("aria-label", new RegExp(`: ${name.replace(/[()]/g, "\\$&")}$`));
+  }
+
+  // seeded published absences are visible to the employee
+  await login(page, "anna@demo.de");
+  await page.waitForURL("**/mein-plan");
+  await expect(page.getByTestId("leave-summary")).toContainText("Urlaub");
+  await expect(page.getByTestId("leave-summary")).toContainText("Krank (bezahlt)");
+});

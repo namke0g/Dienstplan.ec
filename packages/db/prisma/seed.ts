@@ -1,4 +1,4 @@
-import { PrismaClient, type Role } from "@prisma/client";
+import { PrismaClient, type Role, type ShiftKind } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 
@@ -23,7 +23,7 @@ async function main() {
     ["eva@demo.de", "Eva Richter", "EMPLOYEE"],
     ["felix@demo.de", "Felix Braun", "EMPLOYEE"],
   ];
-  const users = [];
+  const users: Awaited<ReturnType<typeof prisma.user.create>>[] = [];
   for (const [email, name, role] of people) {
     users.push(await prisma.user.create({ data: { email, name, role, passwordHash: hash, wardId: ward.id } }));
   }
@@ -34,6 +34,18 @@ async function main() {
     S: await prisma.shiftType.create({ data: { wardId: ward.id, code: "S", name: "Spätdienst", startMin: 780, endMin: 1290, color: "#6366f1" } }),
     N: await prisma.shiftType.create({ data: { wardId: ward.id, code: "N", name: "Nachtdienst", startMin: 1260, endMin: 420, color: "#0f172a" } }),
   };
+  // leave types: all-day absences, no times
+  const leave: [string, string, ShiftKind, string][] = [
+    ["U", "Urlaub", "VACATION", "#10b981"],
+    ["UU", "Unbezahlter Urlaub", "UNPAID_LEAVE", "#64748b"],
+    ["K", "Krank (bezahlt)", "SICK_PAID", "#ef4444"],
+    ["KU", "Krank (unbezahlt)", "SICK_UNPAID", "#b91c1c"],
+    ["SU", "Sonderurlaub", "SPECIAL_LEAVE", "#8b5cf6"],
+  ];
+  const leaveTypes: Record<string, { id: string }> = {};
+  for (const [code, name, kind, color] of leave) {
+    leaveTypes[code] = await prisma.shiftType.create({ data: { wardId: ward.id, code, name, kind, color, startMin: 0, endMin: 0 } });
+  }
 
   // Rotating demo roster for staff: 2 weeks of the current month published, next month as draft.
   const staff = users.filter((u) => u.role === "EMPLOYEE");
@@ -43,10 +55,11 @@ async function main() {
     });
     const last = new Date(Date.UTC(+month.slice(0, 4), +month.slice(5, 7), 0)).getUTCDate();
     const order = [types.F, types.F, types.S, types.S, types.N, null, null] as const;
-    const rows = [];
+    const rows: { planId: string; userId: string; shiftTypeId: string; date: Date }[] = [];
     for (let day = 1; day <= last; day++) {
       staff.forEach((u, i) => {
-        const t = order[(day + i * 2) % 7];
+        // demo absences for the first employee in the published month
+        const t = publish && i === 0 && (day === 10 || day === 11) ? (day === 10 ? leaveTypes.U! : leaveTypes.K!) : order[(day + i * 2) % 7];
         if (t) rows.push({ planId: plan.id, userId: u.id, shiftTypeId: t.id, date: d(`${month}-${String(day).padStart(2, "0")}`) });
       });
     }

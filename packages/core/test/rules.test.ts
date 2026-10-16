@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { validateRoster, type ShiftTypeDef } from "../src";
+import { DEFAULT_RULES, validateRoster, type ShiftTypeDef } from "../src";
 
 const types: ShiftTypeDef[] = [
   { id: "F", startMin: 6 * 60, endMin: 14 * 60 },
@@ -61,5 +61,37 @@ describe("roster rules", () => {
       minStaffing: { F: 2 },
     });
     expect(v).toEqual([{ rule: "MIN_STAFFING", date: "2026-11-02", shiftTypeId: "F", have: 1, need: 2 }]);
+  });
+
+  describe("leave types", () => {
+    const withLeave: ShiftTypeDef[] = [
+      ...types,
+      { id: "U", kind: "VACATION", startMin: 0, endMin: 0 },
+      { id: "K", kind: "SICK_PAID", startMin: 0, endMin: 0 },
+    ];
+
+    it("does not treat absences as work (no rest-time violation, no staffing, streak breaks)", () => {
+      const v = validateRoster(
+        [
+          { userId: "a", date: "2026-11-02", shiftTypeId: "N" },
+          { userId: "a", date: "2026-11-03", shiftTypeId: "U" },
+          { userId: "b", date: "2026-11-02", shiftTypeId: "K" },
+        ],
+        withLeave,
+        { ...DEFAULT_RULES, minStaffing: { F: 0 } },
+      );
+      expect(v).toEqual([]);
+    });
+
+    it("an absence interrupts the max-consecutive-days streak", () => {
+      const days = ["02", "03", "04", "05", "06", "07", "09", "10"];
+      const work = days.map((d) => ({ userId: "a", date: `2026-11-${d}`, shiftTypeId: "F" }));
+      const withU = [...work, { userId: "a", date: "2026-11-08", shiftTypeId: "U" }];
+      expect(validateRoster(withU, withLeave)).toEqual([]);
+    });
+
+    it("still rejects unknown shift types", () => {
+      expect(() => validateRoster([{ userId: "a", date: "2026-11-02", shiftTypeId: "X" }], withLeave)).toThrow();
+    });
   });
 });

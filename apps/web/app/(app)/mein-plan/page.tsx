@@ -2,6 +2,7 @@ import { prisma, toDate, toYmd, daysInMonth } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
 import { snapshotOf, wardContext, planFor } from "@/lib/roster";
 import { fmtTime, monthParam, WEEKDAYS, wd, isWeekend, STATUS_LABEL } from "@/lib/format";
+import { isLeave, isPaidKind, KIND_LABEL } from "@dienstplan/core";
 import { MonthNav } from "@/components/MonthNav";
 import { Legend, RosterGrid } from "@/components/RosterGrid";
 import { addPersonalAction, deletePersonalAction } from "@/app/actions";
@@ -21,8 +22,11 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
   });
   const entriesByDay = Map.groupBy(entries, (e) => toYmd(e.date));
   const pending = plan && published && plan.version !== plan.publishedVersion;
-  const hours = [...mine.values()].reduce((sum, t) => sum + (((t.endMin <= t.startMin ? t.endMin + 1440 : t.endMin) - t.startMin) / 60), 0);
-  const gridTypes = types.map(({ id, code, name, color }) => ({ id, code, name, color }));
+  const leaveDays = new Map<string, number>();
+  for (const t of mine.values()) if (isLeave(t.kind)) leaveDays.set(t.kind, (leaveDays.get(t.kind) ?? 0) + 1);
+  const workShifts = [...mine.values()].filter((t) => !isLeave(t.kind));
+  const hours = workShifts.reduce((sum, t) => sum + (((t.endMin <= t.startMin ? t.endMin + 1440 : t.endMin) - t.startMin) / 60), 0);
+  const gridTypes = types.map(({ id, code, name, color, kind }) => ({ id, code, name, color, kind }));
 
   return (
     <>
@@ -39,11 +43,22 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
       {published && (
         <>
           <div className="grid gap-3 sm:grid-cols-3">
-            <div className="card"><div className="text-xs text-slate-500">Meine Dienste</div><div className="text-2xl font-semibold">{mine.size}</div></div>
+            <div className="card"><div className="text-xs text-slate-500">Meine Dienste</div><div className="text-2xl font-semibold">{workShifts.length}</div></div>
             <div className="card"><div className="text-xs text-slate-500">Geplante Stunden (brutto)</div><div className="text-2xl font-semibold">{hours.toFixed(1).replace(".0", "")} h</div></div>
             <div className="card"><div className="text-xs text-slate-500">Nächster Dienst</div>
-              <div className="text-lg font-semibold">{(() => { const today = new Date().toISOString().slice(0, 10); const n = [...mine.keys()].sort().find((d) => d >= today); const t = n && mine.get(n); return n && t ? `${n.slice(8)}.${n.slice(5, 7)}. ${t.name}` : "–"; })()}</div></div>
+              <div className="text-lg font-semibold">{(() => { const today = new Date().toISOString().slice(0, 10); const n = [...mine.keys()].sort().find((d) => d >= today && !isLeave(mine.get(d)!.kind)); const t = n && mine.get(n); return n && t ? `${n.slice(8)}.${n.slice(5, 7)}. ${t.name}` : "–"; })()}</div></div>
           </div>
+
+          {leaveDays.size > 0 && (
+            <div className="card text-sm" data-testid="leave-summary">
+              <div className="mb-1 text-xs text-slate-500">Abwesenheiten in diesem Monat</div>
+              <ul className="flex flex-wrap gap-x-6 gap-y-1">
+                {[...leaveDays].map(([kind, n]) => (
+                  <li key={kind}><b>{n}</b> {n === 1 ? "Tag" : "Tage"} {KIND_LABEL[kind as keyof typeof KIND_LABEL]} <span className="text-slate-500">({isPaidKind(kind as keyof typeof KIND_LABEL) ? "bezahlt" : "unbezahlt"})</span></li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           <section className="space-y-2">
             <h2 className="font-semibold">Mein Monat</h2>
@@ -55,7 +70,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
                   <li key={d} className={`card flex items-start gap-3 !p-3 ${isWeekend(d) ? "bg-slate-50" : ""}`}>
                     <div className="w-10 text-center"><div className="text-xs text-slate-500">{WEEKDAYS[wd(d)]}</div><div className="font-semibold">{d.slice(8)}</div></div>
                     <div className="flex-1 space-y-1 text-sm">
-                      {t && <div className="inline-flex items-center gap-2 rounded-lg px-2 py-0.5 text-white" style={{ background: t.color }}>{t.name} <span className="opacity-80">{fmtTime(t.startMin)}–{fmtTime(t.endMin)}</span></div>}
+                      {t && <div className="inline-flex items-center gap-2 rounded-lg px-2 py-0.5 text-white" style={{ background: t.color }}>{t.name} {!isLeave(t.kind) && <span className="opacity-80">{fmtTime(t.startMin)}–{fmtTime(t.endMin)}</span>}{isLeave(t.kind) && <span className="opacity-80">ganztägig</span>}</div>}
                       {es.map((e) => (
                         <form key={e.id} action={deletePersonalAction.bind(null, e.id)} className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 px-2 py-0.5 text-violet-900 dark:bg-violet-950 dark:text-violet-100">
                           <span>📝 {e.title}{e.note ? ` – ${e.note}` : ""}</span><button className="text-xs underline" aria-label="Eintrag löschen">löschen</button>

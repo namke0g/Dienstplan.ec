@@ -28,4 +28,15 @@ describe("ics", () => {
     expect(ics).toContain("a\\,b\;c");
     for (const line of ics.split("\r\n")) expect(new TextEncoder().encode(line).length).toBeLessThanOrEqual(75);
   });
+
+  it("absences become all-day, non-blocking events", () => {
+    const ics = buildIcs(
+      [{ id: "l1", date: "2026-11-30", type: { id: "U", name: "Urlaub", kind: "VACATION", startMin: 0, endMin: 0 } }],
+      { calName: "x", now },
+    );
+    expect(ics).toContain("DTSTART;VALUE=DATE:20261130");
+    expect(ics).toContain("DTEND;VALUE=DATE:20261201");
+    expect(ics).toContain("TRANSP:TRANSPARENT");
+    expect(ics).toContain("SUMMARY:Urlaub");
+  });
 });

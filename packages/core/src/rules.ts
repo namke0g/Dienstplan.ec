@@ -1,5 +1,25 @@
+/** WORK is a normal shift; everything else is an absence that fills the day without working. */
+export type ShiftKind = "WORK" | "VACATION" | "UNPAID_LEAVE" | "SICK_PAID" | "SICK_UNPAID" | "SPECIAL_LEAVE";
+
+export const LEAVE_KINDS: ShiftKind[] = ["VACATION", "UNPAID_LEAVE", "SICK_PAID", "SICK_UNPAID", "SPECIAL_LEAVE"];
+export const isLeave = (kind: ShiftKind | undefined): boolean => !!kind && kind !== "WORK";
+
+export const KIND_LABEL: Record<ShiftKind, string> = {
+  WORK: "Dienst",
+  VACATION: "Urlaub",
+  UNPAID_LEAVE: "Unbezahlter Urlaub",
+  SICK_PAID: "Krank (bezahlt)",
+  SICK_UNPAID: "Krank (unbezahlt)",
+  SPECIAL_LEAVE: "Sonderurlaub",
+};
+
+/** Whether the employer keeps paying for the day. */
+export const isPaidKind = (kind: ShiftKind): boolean => kind !== "UNPAID_LEAVE" && kind !== "SICK_UNPAID";
+
 export interface ShiftTypeDef {
   id: string;
+  /** defaults to WORK */
+  kind?: ShiftKind;
   /** minutes from midnight */
   startMin: number;
   /** minutes from midnight; if <= startMin the shift ends the next day */
@@ -37,6 +57,8 @@ export function validateRoster(
 ): Violation[] {
   const byType = new Map(types.map((t) => [t.id, t]));
   const out: Violation[] = [];
+  // absences are not work: they break a streak, need no rest time and do not count towards staffing
+  assignments = assignments.filter((a) => !isLeave(byType.get(a.shiftTypeId)?.kind));
   const perUser = new Map<string, Assignment[]>();
   for (const a of assignments) {
     if (!byType.has(a.shiftTypeId)) throw new Error(`Unknown shift type ${a.shiftTypeId}`);
