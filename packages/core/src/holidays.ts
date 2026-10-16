@@ -50,8 +50,8 @@ export function holidays(year: number, state: State): Holiday[] {
 
   add(inS("BW", "BY", "ST"), ymd(year, 1, 6), "Heilige Drei Könige");
   add((state === "BE" && year >= 2019) || (state === "MV" && year >= 2023), ymd(year, 3, 8), "Internationaler Frauentag");
-  add(state === "BB", easter, "Ostersonntag");
-  add(state === "BB", plus(easter, 49), "Pfingstsonntag");
+  add(inS("BB", "HE"), easter, "Ostersonntag"); // statutory in Brandenburg and Hessen (HFeiertagsG § 1)
+  add(inS("BB", "HE"), plus(easter, 49), "Pfingstsonntag");
   add(state === "BE" && (year === 2020 || year === 2025), ymd(year, 5, 8), "Tag der Befreiung");
   add(inS("BW", "BY", "HE", "NW", "RP", "SL"), plus(easter, 60), "Fronleichnam");
   add(state === "SL", ymd(year, 8, 15), "Mariä Himmelfahrt");

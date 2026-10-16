@@ -72,6 +72,8 @@ model Ward {
   leaveCountMode LeaveCountMode @default(WEEKDAYS)
   /// federal state for public holidays (BW, BY, BE, ...); null = no holidays are taken into account
   state    String?
+  /// false (default, BUrlG § 3): holidays are never leave days. true: holidays count as leave days (some 24/7 rosters / agreements)
+  holidaysAreLeaveDays Boolean @default(false)
   holidays WardHoliday[]
   users    User[]
   plans    Plan[]

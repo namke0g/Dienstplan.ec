@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 import { easterSunday, eachDay } from "@dienstplan/core";
 import {
   prisma, wardHolidays, wardSettings, updateWardSettings, addWardHoliday, removeWardHoliday, getBalance, setEntitlement, createLeave,
-  AdminError, ForbiddenError, LeaveError,
+  AdminError, ForbiddenError, LeaveError, leaveImpact,
 } from "../src";
 
 let admin: string, planner: string, anna: string, wardId: string, U: string;
@@ -71,5 +71,39 @@ describe("ward holidays", () => {
     const { bootstrap } = await import("../src");
     await expect(bootstrap({ wardName: "X", adminEmail: "x@k.de", adminName: "X", state: "XX" })).rejects.toThrow(/Unbekanntes Bundesland/);
     expect(eachDay("2035-01-01", "2035-01-02")).toHaveLength(2);
+  });
+});
+
+describe("review fixes", () => {
+  it("impossible dates are rejected instead of silently becoming another day", async () => {
+    for (const bad of ["2035-02-30", "2035-04-31", "2035-02-29"]) await expect(addWardHoliday(admin, { date: bad, name: "x" }), bad).rejects.toThrow(/gültiges Datum/);
+    expect((await wardSettings(wardId)).extra.map((e) => e.date)).not.toContain("2035-03-02");
+  });
+
+  it("two simultaneous adds of the same day give one entry and a friendly message, not an error page", async () => {
+    const results = await Promise.allSettled([addWardHoliday(admin, { date: "2035-09-01", name: "A" }), addWardHoliday(admin, { date: "2035-09-01", name: "B" })]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const failed = results.find((r) => r.status === "rejected") as PromiseRejectedResult;
+    expect(failed.reason).toBeInstanceOf(AdminError);
+    expect(String(failed.reason.message)).toMatch(/schon einen Eintrag/);
+    expect((await wardSettings(wardId)).extra.filter((e) => e.date === "2035-09-01")).toHaveLength(1);
+  });
+
+  it("wards can choose to count holidays as leave days (e.g. 24/7 rosters); the default follows BUrlG", async () => {
+    const goodFriday = shift(easterSunday(2035), -2);
+    const monday = shift(goodFriday, -4);
+    expect((await leaveImpact(anna, monday, goodFriday, T))[0]).toMatchObject({ year: 2035, days: 4 });
+    await updateWardSettings(admin, { state: "NW", leaveCountMode: "WEEKDAYS", holidaysAreLeaveDays: true });
+    expect((await leaveImpact(anna, monday, goodFriday, T))[0]).toMatchObject({ days: 5 });
+    expect((await wardHolidays(wardId, goodFriday, goodFriday)).get(goodFriday)).toBe("Karfreitag"); // still shown in the plan
+    await updateWardSettings(admin, { state: "NW", leaveCountMode: "WEEKDAYS", holidaysAreLeaveDays: false });
+    expect((await leaveImpact(anna, monday, goodFriday, T))[0]).toMatchObject({ days: 4 });
+  });
+
+  it("the setting is kept when other settings are saved without it", async () => {
+    await updateWardSettings(admin, { state: "NW", leaveCountMode: "WEEKDAYS", holidaysAreLeaveDays: true });
+    await updateWardSettings(admin, { state: "NW", leaveCountMode: "WEEKDAYS" });
+    expect((await wardSettings(wardId)).holidaysAreLeaveDays).toBe(true);
+    await updateWardSettings(admin, { state: "NW", leaveCountMode: "WEEKDAYS", holidaysAreLeaveDays: false });
   });
 });

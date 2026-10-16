@@ -1,5 +1,4 @@
-import { countDays, eachDay } from "@dienstplan/core";
-import { getBalance, prisma, leaveContext, swapsForPlanner, toYmd, wardHolidays } from "@dienstplan/db";
+import { leaveImpact, prisma, leaveContext, swapsForPlanner, toYmd } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
 import { decideLeaveAction, decideSwapAction } from "@/app/actions";
 
@@ -15,16 +14,9 @@ export default async function AntraegePage({ searchParams }: { searchParams: Pro
     prisma.leaveRequest.findMany({ where: { ...where, status: { in: ["APPROVED", "REJECTED"] } }, orderBy: { decidedAt: "desc" }, take: 15, include: { user: { select: { name: true } }, shiftType: true, decidedBy: { select: { name: true } } } }),
   ]);
   const ctx = await Promise.all(pending.map((r) => leaveContext(r.id)));
-  // balance per requested year for requests that deduct leave: remaining already includes this open request
-  const impact = await Promise.all(pending.map(async (r) => {
-    if (!r.shiftType.consumesLeave) return [];
-    const days = eachDay(toYmd(r.start), toYmd(r.end));
-    const holidays = new Set((await wardHolidays(me.wardId, days[0]!, days[days.length - 1]!)).keys());
-    return Promise.all([...new Set(days.map((d) => Number(d.slice(0, 4))))].map(async (y) => {
-      const b = await getBalance(r.userId, y);
-      return b.configured ? { year: y, days: countDays(days.filter((d) => d.startsWith(`${y}-`)), b.mode, holidays), remaining: b.remaining } : { year: y, days: null, remaining: null };
-    }));
-  }));
+  // per requested year: days this request deducts and what is left after approval (same rules as the check when it was filed)
+  const impact = await Promise.all(pending.map(async (r) =>
+    !r.shiftType.consumesLeave ? [] : (await leaveImpact(r.userId, toYmd(r.start), toYmd(r.end))).map((y) => ({ year: y.year, days: y.configured ? y.days : null, remaining: y.remaining }))));
   const swaps = me.role === "PDL" ? [] : await swapsForPlanner(me.id);
 
   return (

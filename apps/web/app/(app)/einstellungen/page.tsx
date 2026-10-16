@@ -31,6 +31,11 @@ export default async function Einstellungen({ searchParams }: { searchParams: Pr
           <label className="mt-1 flex items-center gap-2"><input type="radio" name="mode" value="WEEKDAYS" defaultChecked={s.leaveCountMode === "WEEKDAYS"} /> Montag bis Freitag (5-Tage-Woche)</label>
           <label className="flex items-center gap-2"><input type="radio" name="mode" value="ALL_DAYS" defaultChecked={s.leaveCountMode === "ALL_DAYS"} /> Alle Kalendertage</label>
         </fieldset>
+        <label className="flex items-start gap-2 text-sm md:col-span-2">
+          <input type="checkbox" name="holidaysAreLeaveDays" defaultChecked={s.holidaysAreLeaveDays} className="mt-1" />
+          <span><b>Feiertage als Urlaubstage zählen</b><br /><span className="text-slate-500">Standard ist aus: Nach dem Bundesurlaubsgesetz sind Feiertage keine Urlaubstage. Manche 24/7-Dienstpläne oder Tarifverträge zählen einen Feiertag, an dem laut Plan Dienst gewesen wäre, dennoch als Urlaubstag – kläre das mit Personalabteilung und Betriebsrat.</span></span>
+        </label>
+        <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900 md:col-span-2 dark:bg-amber-950 dark:text-amber-100">Änderungen gelten rückwirkend für alle Urlaubskonten, auch vergangener Jahre. Bereits per Jahreswechsel übernommener Resturlaub wird dabei nicht neu berechnet – prüfe danach das Urlaubskonto.</p>
         <div className="md:col-span-2"><button className="btn">Speichern</button></div>
       </form>
 

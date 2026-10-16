@@ -2,7 +2,7 @@ import { computeBalance, countDays, eachDay, type Balance, type CountMode } from
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 import { actor, type Tx } from "./service";
-import { wardHolidays } from "./holidays";
+import { leaveFreeDays } from "./holidays";
 
 export class BalanceError extends Error {}
 
@@ -13,13 +13,14 @@ export interface BalanceResult extends Balance { configured: true; mode: CountMo
 export type MaybeBalance = BalanceResult | { configured: false; year: number; mode: CountMode };
 
 /** Leave balance of one person for one year, or `configured: false` if no entitlement was entered for that year. */
-export async function getBalance(userId: string, year: number, today = todayYmd(), client: Tx | typeof prisma = prisma): Promise<MaybeBalance> {
+/** `freeDays`: pass the ward's leaveFreeDays for the year when computing many balances, so they are fetched only once. */
+export async function getBalance(userId: string, year: number, today = todayYmd(), client: Tx | typeof prisma = prisma, freeDays?: Set<string>): Promise<MaybeBalance> {
   const user = await client.user.findUniqueOrThrow({ where: { id: userId }, include: { ward: true } });
   const mode = user.ward.leaveCountMode as CountMode;
   const ent = await client.leaveEntitlement.findUnique({ where: { userId_year: { userId, year } } });
   if (!ent) return { configured: false, year, mode };
 
-  const holidays = new Set((await wardHolidays(user.wardId, `${year}-01-01`, `${year}-12-31`, client)).keys());
+  const holidays = freeDays ?? (await leaveFreeDays(user.wardId, year, client));
   const [rows, open, approved] = await Promise.all([
     client.shift.findMany({ where: { userId, date: yearRange(year), shiftType: { consumesLeave: true } }, select: { date: true } }),
     client.leaveRequest.findMany({ where: { userId, status: "PENDING", shiftType: { consumesLeave: true }, start: { lte: toDate(`${year}-12-31`) }, end: { gte: toDate(`${year}-01-01`) } } }),
@@ -39,17 +40,24 @@ export async function getBalance(userId: string, year: number, today = todayYmd(
 }
 
 /** Throws a German LeaveError-style message if the days of a new request exceed what is left (only for configured years). */
+/** Per calendar year of a leave range: how many days it deducts and what remains (remaining already includes open requests). */
+export async function leaveImpact(userId: string, start: string, end: string, today = todayYmd(), client: Tx | typeof prisma = prisma) {
+  const user = await client.user.findUniqueOrThrow({ where: { id: userId }, select: { wardId: true } });
+  const days = eachDay(start, end);
+  const out: { year: number; configured: boolean; days: number; remaining: number | null }[] = [];
+  for (const year of [...new Set(days.map((d) => Number(d.slice(0, 4))))]) {
+    const free = await leaveFreeDays(user.wardId, year, client);
+    const b = await getBalance(userId, year, today, client, free);
+    const mode = b.mode;
+    out.push({ year, configured: b.configured, days: countDays(days.filter((d) => d.startsWith(`${year}-`)), mode, free), remaining: b.configured ? b.remaining : null });
+  }
+  return out;
+}
+
+/** German message if a new request deducts more days than are left (only for years with an entitlement), else null. */
 export async function assertEnoughLeave(tx: Tx, userId: string, start: string, end: string, today: string): Promise<string | null> {
-  const years = [...new Set(eachDay(start, end).map((d) => Number(d.slice(0, 4))))];
-  for (const year of years) {
-    const b = await getBalance(userId, year, today, tx);
-    if (!b.configured) continue;
-    const u = await tx.user.findUniqueOrThrow({ where: { id: userId } });
-    const holidays = new Set((await wardHolidays(u.wardId, `${year}-01-01`, `${year}-12-31`, tx)).keys());
-    const days = countDays(eachDay(start, end).filter((d) => d.startsWith(`${year}-`)), b.mode, holidays);
-    if (days > b.remaining) {
-      return `Nicht genug Resturlaub ${year}: ${b.remaining} Tag(e) verfügbar, ${days} beantragt.`;
-    }
+  for (const y of await leaveImpact(userId, start, end, today, tx)) {
+    if (y.configured && y.days > y.remaining!) return `Nicht genug Resturlaub ${y.year}: ${y.remaining} Tag(e) verfügbar, ${y.days} beantragt.`;
   }
   return null;
 }
@@ -100,9 +108,10 @@ export async function rolloverYear(actorId: string, year: number, expires: strin
     const ents = await tx.leaveEntitlement.findMany({ where: { year, user: { wardId: me.wardId, active: true, role: "EMPLOYEE" } } });
     const done = new Set((await tx.leaveEntitlement.findMany({ where: { year: year + 1, userId: { in: ents.map((e) => e.userId) } } })).map((e) => e.userId));
     let created = 0;
+    const free = await leaveFreeDays(me.wardId, year, tx);
     for (const e of ents) {
       if (done.has(e.userId)) continue;
-      const b = await getBalance(e.userId, year, today, tx);
+      const b = await getBalance(e.userId, year, today, tx, free);
       const carry = b.configured ? Math.max(0, b.remaining) : 0;
       await tx.leaveEntitlement.create({ data: { userId: e.userId, year: year + 1, entitlement: e.entitlement, carryOver: carry, carryOverExpires: carry > 0 && expires ? toDate(expires) : null } });
       created++;
@@ -115,5 +124,6 @@ export async function rolloverYear(actorId: string, year: number, expires: strin
 export async function wardBalances(actorId: string, year: number, today = todayYmd()) {
   const me = await prisma.user.findUniqueOrThrow({ where: { id: actorId } });
   const staff = await prisma.user.findMany({ where: { wardId: me.wardId, role: "EMPLOYEE", active: true }, orderBy: { name: "asc" }, include: { entitlements: { where: { year } } } });
-  return Promise.all(staff.map(async (s) => ({ user: { id: s.id, name: s.name }, entitlement: s.entitlements[0] ?? null, balance: await getBalance(s.id, year, today) })));
+  const free = await leaveFreeDays(me.wardId, year);
+  return Promise.all(staff.map(async (s) => ({ user: { id: s.id, name: s.name }, entitlement: s.entitlements[0] ?? null, balance: await getBalance(s.id, year, today, prisma, free) })));
 }

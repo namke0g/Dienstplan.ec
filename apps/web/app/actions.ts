@@ -262,13 +262,15 @@ export async function anonymizeUserAction(userId: string, form: FormData) {
 
 async function settingsBack(fn: () => Promise<unknown>, ok: string): Promise<never> {
   const r = await userGuard(fn);
-  revalidatePath("/einstellungen"); revalidatePath("/planer"); revalidatePath("/urlaub"); revalidatePath("/urlaubskonto");
+  revalidatePath("/", "layout"); // holidays show up on almost every page
   redirect("error" in r ? `/einstellungen?err=${encodeURIComponent(r.error)}` : `/einstellungen?ok=${encodeURIComponent(ok)}`);
 }
 export async function saveWardSettingsAction(form: FormData) {
   const me = await requireUser(["ADMIN"]);
   const state = String(form.get("state") ?? "");
-  await settingsBack(() => updateWardSettings(me.id, { state: state || null, leaveCountMode: String(form.get("mode")) === "ALL_DAYS" ? "ALL_DAYS" : "WEEKDAYS" }), "Gespeichert. Urlaubskonten rechnen ab sofort damit.");
+  await settingsBack(() => updateWardSettings(me.id, {
+    state: state || null, leaveCountMode: String(form.get("mode")) === "ALL_DAYS" ? "ALL_DAYS" : "WEEKDAYS", holidaysAreLeaveDays: form.get("holidaysAreLeaveDays") === "on",
+  }), "Gespeichert. Urlaubskonten rechnen ab sofort damit.");
 }
 export async function addWardHolidayAction(form: FormData) {
   const me = await requireUser(["ADMIN"]);

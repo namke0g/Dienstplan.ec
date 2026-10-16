@@ -36,6 +36,8 @@ describe("German public holidays", () => {
     expect(dates(2026, "SL")["Mariä Himmelfahrt"]).toBe("2026-08-15");
     expect(dates(2026, "BY")["Mariä Himmelfahrt"]).toBeUndefined(); // only in parts of Bavaria: local extra day
     expect(dates(2026, "BB")).toMatchObject({ Ostersonntag: "2026-04-05", Pfingstsonntag: "2026-05-24" });
+    expect(dates(2026, "HE")).toMatchObject({ Ostersonntag: "2026-04-05", Pfingstsonntag: "2026-05-24", Fronleichnam: "2026-06-04" });
+    expect(dates(2026, "NW").Ostersonntag).toBeUndefined();
   });
 
   it("rule changes over the years", () => {
