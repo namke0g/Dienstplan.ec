@@ -45,7 +45,6 @@ export default defineConfig({
       NODE_ENV: "production",
       SESSION_SECRET: "e2e0123456789abcdef0123456789abcdef01234",
       DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://dienstplan:dienstplan@localhost:5432/dienstplan",
-      EXPO_PUSH_URL: "http://localhost:3199/push",
       VAPID_SUBJECT: "mailto:e2e@example.com",
       VAPID_PUBLIC_KEY: vapid.publicKey,
       VAPID_PRIVATE_KEY: vapid.privateKey,

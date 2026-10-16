@@ -120,8 +120,8 @@ describe("robustness", () => {
     expect(sessionStillValid(second, tokenIssuedAt(second, 100_900))).toBe(true); // a fresh login still works
   });
 
-  it("changing the password stops pushes to all devices, phones included", async () => {
-    await prisma.deviceToken.createMany({ data: [{ userId: david, platform: "IOS", token: "ExponentPushToken[lost-phone]" }, { userId: david, platform: "WEB", token: "https://fcm.googleapis.com/x", p256dh: "p", auth: "a" }] });
+  it("changing the password stops pushes to all of the person's browsers", async () => {
+    await prisma.deviceToken.createMany({ data: [{ userId: david, platform: "WEB", token: "https://fcm.googleapis.com/pc-1", p256dh: "p", auth: "a" }, { userId: david, platform: "WEB", token: "https://fcm.googleapis.com/pc-2", p256dh: "p", auth: "a" }] });
     await changePassword(david, "demo1234", "ein-ganz-neues-Passwort-42");
     expect(await prisma.deviceToken.count({ where: { userId: david } })).toBe(0);
   });

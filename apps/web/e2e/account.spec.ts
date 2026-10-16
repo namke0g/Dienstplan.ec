@@ -45,21 +45,3 @@ test("changing the password: validation, new login works, old password and other
   await fresh.page.waitForURL("**/mein-plan");
   for (const x of [a, b, old, fresh]) await x.ctx.close();
 });
-
-test("mobile API: password change returns a fresh token and revokes the old one", async ({ request }) => {
-  const login = async (pw: string) => request.post("/api/mobile/login", { data: { email: "eva@demo.de", password: pw } });
-  const tokenA = (await (await login("demo1234")).json()).token;
-  const auth = (t: string) => ({ headers: { authorization: `Bearer ${t}` } });
-
-  expect((await request.post("/api/mobile/password", { ...auth(tokenA), data: { current: "demo1234", next: "kurz" } })).status()).toBe(400);
-  expect((await request.post("/api/mobile/password", { ...auth(tokenA), data: { current: "nope-nope-nope", next: "ein-neues-passwort-2" } })).status()).toBe(400);
-  expect((await request.post("/api/mobile/password", { data: { current: "demo1234", next: "ein-neues-passwort-2" } })).status()).toBe(401);
-
-  const ok = await request.post("/api/mobile/password", { ...auth(tokenA), data: { current: "demo1234", next: "ein-neues-passwort-2" } });
-  expect(ok.status()).toBe(200);
-  const tokenB = (await ok.json()).token;
-  expect((await request.get("/api/mobile/me", auth(tokenA))).status()).toBe(401); // old token revoked
-  expect((await request.get("/api/mobile/me", auth(tokenB))).status()).toBe(200);
-  expect((await login("demo1234")).status()).toBe(401);
-  expect((await login("ein-neues-passwort-2")).status()).toBe(200);
-});

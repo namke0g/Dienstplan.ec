@@ -97,28 +97,3 @@ test("approved leave for a published month is held until the planner applies it"
   await expect(page.getByText("noch nicht im Plan stehen")).toHaveCount(0);
   await expect(page.getByText("Entwurf")).toBeVisible(); // new plan version, needs re-approval
 });
-
-test("mobile API: create, list, cancel and validation errors", async ({ request }) => {
-  const r = await request.post("/api/mobile/login", { data: { email: "felix@demo.de", password: "demo1234" } });
-  const auth = { headers: { authorization: `Bearer ${(await r.json()).token}` } };
-  const info = await (await request.get("/api/mobile/leave", auth)).json();
-  expect(info.types.map((t: any) => t.name).sort()).toEqual(["Sonderurlaub", "Unbezahlter Urlaub", "Urlaub"]);
-  const urlaub = info.types.find((t: any) => t.name === "Urlaub").id;
-
-  const bad = await request.post("/api/mobile/leave", { ...auth, data: { typeId: urlaub, start: "2020-01-01", end: "2020-01-02" } });
-  expect(bad.status()).toBe(400);
-  expect((await bad.json()).error).toMatch(/Vergangenheit/);
-
-  const ok = await request.post("/api/mobile/leave", { ...auth, data: { typeId: urlaub, start: plusDays(60), end: plusDays(62) } });
-  expect(ok.status()).toBe(201);
-  const created = await ok.json();
-  expect(created.status).toBe("PENDING");
-
-  const other = await request.post("/api/mobile/login", { data: { email: "david@demo.de", password: "demo1234" } });
-  const otherAuth = { headers: { authorization: `Bearer ${(await other.json()).token}` } };
-  expect((await request.delete(`/api/mobile/leave/${created.id}`, otherAuth)).status()).toBe(400); // not theirs
-  expect((await request.delete(`/api/mobile/leave/${created.id}`, auth)).status()).toBe(200);
-  const after = await (await request.get("/api/mobile/leave", auth)).json();
-  expect(after.requests.find((x: any) => x.id === created.id).status).toBe("CANCELLED");
-  expect((await request.get("/api/mobile/leave")).status()).toBe(401);
-});

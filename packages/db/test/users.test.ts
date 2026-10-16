@@ -93,7 +93,7 @@ describe("update", () => {
 
 describe("deactivate / reactivate", () => {
   it("ends sessions, stops push, withdraws open requests and keeps the person on the roster", async () => {
-    await prisma.deviceToken.create({ data: { userId: ben, platform: "IOS", token: "ExponentPushToken[ben-x]" } });
+    await prisma.deviceToken.create({ data: { userId: ben, platform: "WEB", token: "https://fcm.googleapis.com/ben-x", p256dh: "p", auth: "a" } });
     const wardId = (await get(ben)).wardId;
     const type = (await prisma.shiftType.findFirstOrThrow({ where: { wardId, code: "U" } })).id;
     const leave = await createLeave(ben, { shiftTypeId: type, start: "2036-05-04", end: "2036-05-05" }, "2036-01-02");
@@ -141,7 +141,7 @@ describe("anonymise", () => {
   it("removes personal data of a deactivated person but keeps roster history; irreversible; admin only", async () => {
     const eva = await id("eva");
     await prisma.personalEntry.create({ data: { userId: eva, date: new Date("2036-01-01T00:00:00Z"), title: "Arzttermin" } });
-    await prisma.deviceToken.create({ data: { userId: eva, platform: "ANDROID", token: "ExponentPushToken[eva-x]" } });
+    await prisma.deviceToken.create({ data: { userId: eva, platform: "WEB", token: "https://fcm.googleapis.com/eva-x", p256dh: "p", auth: "a" } });
     const shifts = await prisma.shift.count({ where: { userId: eva } });
     expect(shifts).toBeGreaterThan(0);
 

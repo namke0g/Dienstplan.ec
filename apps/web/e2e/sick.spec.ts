@@ -82,18 +82,3 @@ test("planners report on someone's behalf; the person is told; the Betriebsrat h
   await expect(page.getByRole("form", { name: "Krankmeldung erfassen" })).toHaveCount(0);
   await expect(page.getByRole("link", { name: /Krank/ })).toHaveCount(0);
 });
-
-test("mobile API: report, list, overlap error, withdraw", async ({ request }) => {
-  const token = (await (await request.post("/api/mobile/login", { data: { email: "clara@demo.de", password: "demo1234" } })).json()).token;
-  const auth = { headers: { authorization: `Bearer ${token}` } };
-  const r = await request.post("/api/mobile/sick", { ...auth, data: { start: today, end: tomorrow } });
-  expect(r.status()).toBe(201);
-  const id = (await r.json()).id;
-  const overlap = await request.post("/api/mobile/sick", { ...auth, data: { start: tomorrow, end: tomorrow } });
-  expect(overlap.status()).toBe(400);
-  expect((await overlap.json()).error).toMatch(/schon eine Krankmeldung/);
-  expect((await (await request.get("/api/mobile/sick", auth)).json()).reports.map((x: { id: string }) => x.id)).toContain(id);
-  expect((await request.post(`/api/mobile/sick/${id}`, { ...auth, data: { action: "end", backOn: today } })).status()).toBe(200); // withdrawn
-  expect((await (await request.get("/api/mobile/sick", auth)).json()).reports.map((x: { id: string }) => x.id)).not.toContain(id);
-  expect((await request.get("/api/mobile/sick")).status()).toBe(401);
-});
