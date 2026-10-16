@@ -12,7 +12,7 @@ export function Nav({ name, role, unread, openRequests = 0, openSwaps = 0 }: { n
         ? [["/pruefung", "Prüfung"], ["/mein-plan", "Veröffentlichter Plan"]]
         : [["/mein-plan", "Mein Plan"]];
   links.push(["/urlaub", "Urlaub"]);
-  if (role === "EMPLOYEE") links.push(["/tausch", openSwaps ? `Tausch (${openSwaps})` : "Tausch"], ["/krank", "Krank melden"]);
+  if (role === "EMPLOYEE") links.push(["/tausch", openSwaps ? `Tausch (${openSwaps})` : "Tausch"], ["/wuensche", "Wünsche"], ["/krank", "Krank melden"]);
   if (role === "PLANNER" || role === "ADMIN" || role === "PDL") links.push(["/krank", "Krankmeldungen"]);
   if (role === "PLANNER" || role === "ADMIN" || role === "PDL") links.push(["/urlaubskonto", "Urlaubskonto"], ["/antraege", openRequests ? `Anträge (${openRequests})` : "Anträge"]);
   if (role === "ADMIN" || role === "PLANNER") links.push(["/benutzer", "Benutzer"]);

@@ -6,3 +6,4 @@ export * from "./swap";
 export * from "./balance";
 export * from "./holidays";
 export * from "./time";
+export * from "./wishes";

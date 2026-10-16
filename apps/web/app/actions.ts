@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLeave, cancelLeave, decideLeave, requestLeaveCancellation, withdrawLeaveCancellation, decideLeaveCancellation, applyPendingLeave, LeaveError,
+import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLeave, cancelLeave, decideLeave, setWish, deleteWish, setPreference, WishError, requestLeaveCancellation, withdrawLeaveCancellation, decideLeaveCancellation, applyPendingLeave, LeaveError,
   createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
   setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError, ForbiddenError,
   createManagedUser, updateManagedUser, setManagedActive, resetManagedPassword, anonymizeUser, type Role,
@@ -288,6 +288,7 @@ export async function saveWardSettingsAction(form: FormData) {
   const state = String(form.get("state") ?? "");
   await settingsBack(() => updateWardSettings(me.id, {
     state: state || null, leaveCountMode: String(form.get("mode")) === "ALL_DAYS" ? "ALL_DAYS" : "WEEKDAYS", holidaysAreLeaveDays: form.get("holidaysAreLeaveDays") === "on",
+    freeWishesPerMonth: String(form.get("freeWishesPerMonth") ?? "").trim() === "" ? undefined : Number(form.get("freeWishesPerMonth")),
   }), "Gespeichert. Urlaubskonten rechnen ab sofort damit.");
 }
 export async function addWardHolidayAction(form: FormData) {
@@ -319,4 +320,30 @@ export async function extendSickAction(id: string, form: FormData) {
 export async function endSickAction(id: string, form: FormData) {
   const me = await requireUser();
   await sickBack(() => endSickReport(me.id, id, String(form.get("backOn") ?? "")), "Gespeichert. Die vorher geplanten Dienste stehen wieder im Plan.");
+}
+
+async function wishBack(month: string, fn: () => Promise<unknown>, ok: string): Promise<never> {
+  let err: string | null = null;
+  try { await fn(); } catch (e) { if (e instanceof WishError || e instanceof ForbiddenError) err = e.message; else throw e; }
+  revalidatePath("/wuensche");
+  redirect(`/wuensche?m=${month}&${err ? `err=${encodeURIComponent(err)}` : `ok=${encodeURIComponent(ok)}`}`);
+}
+
+export async function setWishAction(month: string, form: FormData) {
+  const me = await requireUser(["EMPLOYEE"]);
+  const wish = String(form.get("wish") ?? "FREE");
+  await wishBack(month, () => setWish(me.id, { date: String(form.get("date") ?? ""), kind: wish === "FREE" ? "FREE" : "SHIFT", shiftTypeId: wish === "FREE" ? null : wish, note: String(form.get("note") ?? "") }), "Wunsch gespeichert.");
+}
+
+export async function deleteWishAction(id: string, month: string) {
+  const me = await requireUser(["EMPLOYEE"]);
+  await wishBack(month, () => deleteWish(me.id, id), "Wunsch gelöscht.");
+}
+
+export async function savePreferenceAction(form: FormData) {
+  const me = await requireUser(["EMPLOYEE"]);
+  const prefer: string[] = [], avoid: string[] = [];
+  for (const [k, v] of form.entries()) if (k.startsWith("p_")) (v === "prefer" ? prefer : v === "avoid" ? avoid : []).push(k.slice(2));
+  const month = String(form.get("m") ?? "");
+  await wishBack(/^\d{4}-\d{2}$/.test(month) ? month : "", () => setPreference(me.id, { prefer, avoid, note: String(form.get("note") ?? "") }), "Vorlieben gespeichert.");
 }

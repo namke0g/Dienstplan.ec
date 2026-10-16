@@ -75,6 +75,8 @@ model Ward {
   /// false (default, BUrlG § 3): holidays are never leave days. true: holidays count as leave days (some 24/7 rosters / agreements)
   holidaysAreLeaveDays Boolean @default(false)
   holidays WardHoliday[]
+  /// how many "Wunschfrei" days an employee may wish per month
+  freeWishesPerMonth Int @default(4)
   users    User[]
   plans    Plan[]
   shiftTypes ShiftType[]
@@ -101,6 +103,8 @@ model User {
   leaveRequests LeaveRequest[] @relation("LeaveOwner")
   leaveDecisions LeaveRequest[] @relation("LeaveDecider")
   leaveCancellations LeaveRequest[] @relation("LeaveCanceller")
+  wishes       ShiftWish[]
+  preference   ShiftPreference?
   swapsRequested SwapRequest[] @relation("SwapRequester")
   swapsReceived SwapRequest[] @relation("SwapPartner")
   swapsDecided SwapRequest[] @relation("SwapDecider")
@@ -130,6 +134,7 @@ model ShiftType {
   paid     Boolean @default(true)
   shifts   Shift[]
   leaveRequests LeaveRequest[]
+  wishes   ShiftWish[]
   swapsOffered SwapRequest[] @relation("SwapOfferedType")
   swapsWanted SwapRequest[] @relation("SwapWantedType")
 
@@ -373,4 +378,37 @@ model SickReport {
 
   @@index([wardId, end])
   @@index([userId, start])
+}
+
+enum WishKind {
+  FREE
+  SHIFT
+}
+
+/// An employee's wish for one day of a month that is still being planned. Only the person and the planning side see it.
+model ShiftWish {
+  id          String     @id @default(cuid())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  wardId      String
+  date        DateTime   @db.Date
+  kind        WishKind
+  /// for kind SHIFT: the wished work shift
+  shiftTypeId String?
+  shiftType   ShiftType? @relation(fields: [shiftTypeId], references: [id])
+  note        String?
+  createdAt   DateTime   @default(now())
+
+  @@unique([userId, date])
+  @@index([wardId, date])
+}
+
+/// Standing preferences of an employee (e.g. "lieber Frühdienst", "keine Nachtdienste"); hints for the planner, not rules.
+model ShiftPreference {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  prefer    String[] @default([])
+  avoid     String[] @default([])
+  note      String?
+  updatedAt DateTime @updatedAt
 }

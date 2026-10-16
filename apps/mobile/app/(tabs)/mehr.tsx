@@ -35,6 +35,7 @@ export default function Mehr() {
       <Card><Text style={{ color: t.text, fontWeight: "700", fontSize: 16 }}>{user?.name}</Text></Card>
       {msg && <Banner text={msg} />}
       <Button title="Urlaub & Abwesenheit beantragen" onPress={() => router.push("/leave")} />
+      {user?.role === "EMPLOYEE" && <Button title="Wünsche" onPress={() => router.push("/wishes")} />}
       {user?.role === "EMPLOYEE" && <Button title="Krank melden" onPress={() => router.push("/sick")} />}
       {user?.role === "EMPLOYEE" && <Button ghost title="Diensttausch" onPress={() => router.push("/swaps")} />}
       <Card style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>

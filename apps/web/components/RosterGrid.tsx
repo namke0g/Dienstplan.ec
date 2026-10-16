@@ -2,6 +2,7 @@
 import { useEffect, useState, useTransition } from "react";
 import { WEEKDAYS, wd, isWeekend } from "@/lib/format";
 import { setShiftAction } from "@/app/actions";
+import { wishState } from "@dienstplan/core";
 
 export interface GridType { id: string; code: string; name: string; color: string; kind: string; paid: boolean }
 interface Props {
@@ -14,9 +15,11 @@ interface Props {
   flagged?: string[]; // cells with rule violations
   holidays?: Record<string, string>; // date -> name of public holidays / ward days off
   highlightUser?: string;
+  /** planner only: `${userId}|${date}` -> the employee's wish for that day */
+  wishes?: Record<string, { kind: "FREE" | "SHIFT"; shiftTypeId: string | null; note: string | null }>;
 }
 
-export function RosterGrid({ planId, editable, days, staff, types, shifts: initial, flagged = [], highlightUser, holidays = {} }: Props) {
+export function RosterGrid({ planId, editable, days, staff, types, shifts: initial, flagged = [], highlightUser, holidays = {}, wishes = {} }: Props) {
   const [shifts, setShifts] = useState(initial);
   const [, start] = useTransition();
   const byId = new Map(types.map((t) => [t.id, t]));
@@ -59,15 +62,20 @@ export function RosterGrid({ planId, editable, days, staff, types, shifts: initi
               {days.map((d) => {
                 const t = byId.get(shifts[`${u.id}|${d}`] ?? "");
                 const isBad = bad.has(`${u.id}|${d}`);
+                const wish = wishes[`${u.id}|${d}`];
+                const wished = wish && (wish.kind === "FREE" ? "Wunschfrei" : `Wunsch ${byId.get(wish.shiftTypeId ?? "")?.name ?? "Dienst"}`);
+                const missed = wish && wishState({ userId: u.id, date: d, ...wish }, t?.id ?? null, (id) => byId.get(id)?.kind) === "unmet";
                 return (
                   <td key={d} className={`border-b border-slate-100 p-0.5 text-center dark:border-slate-800 ${holidays[d] ? "bg-rose-50/60 dark:bg-rose-950/40" : isWeekend(d) ? "bg-slate-50 dark:bg-slate-900/60" : ""}`}>
                     <div className="relative">
                     <button type="button" disabled={!editable} onClick={(e) => { e.stopPropagation(); setOpen(open === `${u.id}|${d}` ? null : `${u.id}|${d}`); }}
-                      aria-label={`${u.name}, ${d}: ${t?.name ?? "frei"}`} aria-haspopup="menu" aria-expanded={open === `${u.id}|${d}`}
-                      className={`h-8 w-full rounded-md text-[11px] font-semibold ${editable ? "hover:ring-2 hover:ring-brand" : "cursor-default"} ${isBad ? "ring-2 ring-rose-500" : ""}`}
+                      aria-label={`${u.name}, ${d}: ${t?.name ?? "frei"}${wished ? ` (${wished}${missed ? ", nicht erfüllt" : ""})` : ""}`} aria-haspopup="menu" aria-expanded={open === `${u.id}|${d}`}
+                      title={wish ? `${wished}${wish.note ? `: ${wish.note}` : ""}` : undefined}
+                      className={`h-8 w-full rounded-md text-[11px] font-semibold ${editable ? "hover:ring-2 hover:ring-brand" : "cursor-default"} ${isBad ? "ring-2 ring-rose-500" : missed ? "ring-2 ring-amber-400" : wish && !t ? "border border-dashed border-amber-400" : ""}`}
                       style={t ? { background: t.color, color: "#fff" } : undefined}>
-                      {t?.code ?? ""}
+                      {t?.code ?? (wish ? <span className="text-amber-600">{wish.kind === "FREE" ? "♡" : `♡${byId.get(wish.shiftTypeId ?? "")?.code ?? ""}`}</span> : "")}
                     </button>
+                    {wish && t && <span aria-hidden className="pointer-events-none absolute right-0.5 top-0 text-[8px] text-amber-300">♡</span>}
                     {open === `${u.id}|${d}` && (
                       <div role="menu" onClick={(e) => e.stopPropagation()} className="absolute left-1/2 top-9 z-30 w-56 -translate-x-1/2 space-y-1 rounded-xl border border-slate-200 bg-white p-2 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
                         {[["Dienste", work], ["Abwesenheit", absences]].map(([label, list]) => (
