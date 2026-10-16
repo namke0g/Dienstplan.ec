@@ -18,7 +18,8 @@ const ecdh = createECDH("prime256v1");
 ecdh.generateKeys();
 const vapid = { publicKey: ecdh.getPublicKey().toString("base64url"), privateKey: ecdh.getPrivateKey().toString("base64url") };
 
-const chromium = "/opt/pw-browsers/chromium";
+const LOCAL_CHROMIUM = "/opt/pw-browsers/chromium";
+
 export default defineConfig({
   testDir: "e2e",
   workers: 1,
@@ -27,7 +28,10 @@ export default defineConfig({
   // in CI, failed tests become annotations with the error message (readable without downloading logs)
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
   timeout: 60_000,
-  use: { baseURL: "http://localhost:3100", launchOptions: existsSync(chromium) ? { executablePath: chromium } : {} },
+  // full Chromium in headless mode, everywhere: Playwright's slimmed-down "headless shell" always reports notifications as
+  // blocked, so browser-push behaviour could not be tested with it (and it differs from what people actually use)
+  // (a preinstalled full Chromium is used by path where one exists, e.g. in cloud dev containers)
+  use: { baseURL: "http://localhost:3100", ...(existsSync(LOCAL_CHROMIUM) ? { launchOptions: { executablePath: LOCAL_CHROMIUM } } : { channel: "chromium" }) },
   // Runs the same standalone server the Docker image runs (production mode), so the e2e suite also covers the build artifact,
   // including the bundled Prisma engine. Requires `next build` first.
   webServer: {
