@@ -7,7 +7,7 @@ const d = (s: string) => new Date(`${s}T00:00:00Z`);
 
 async function main() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "AuditLog","Notification","CalendarToken","DeviceToken","PersonalEntry","Approval","Shift","Plan","ShiftType","User","Ward" CASCADE`,
+    `TRUNCATE "AuditLog","Notification","CalendarToken","DeviceToken","PersonalEntry","Approval","Shift","LeaveEntitlement","Plan","ShiftType","User","Ward" CASCADE`,
   );
   const ward = await prisma.ward.create({ data: { name: "Station 3A – Innere Medizin" } });
   const hash = await bcrypt.hash("demo1234", 10);
@@ -36,7 +36,7 @@ async function main() {
   };
 
   const absence = (code: string, name: string, kind: "VACATION" | "SPECIAL_LEAVE" | "SICK", paid: boolean, color: string) =>
-    prisma.shiftType.create({ data: { wardId: ward.id, code, name, kind, paid, startMin: 0, endMin: 0, color } });
+    prisma.shiftType.create({ data: { wardId: ward.id, code, name, kind, paid, consumesLeave: kind === "VACATION" && paid, startMin: 0, endMin: 0, color } });
   const abs = {} as Record<string, string>;
   for (const a of [
     absence("U", "Urlaub", "VACATION", true, "#10b981"),
@@ -86,6 +86,13 @@ async function main() {
   const nextD = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
   await mk(cur, true);
   await mk(nextD.toISOString().slice(0, 7), false);
+  // demo balances for the current year: 30 days; Clara has 2 carry-over days that lapsed on 31 March
+  const year = now.getUTCFullYear();
+  for (const u of staff) {
+    await prisma.leaveEntitlement.create({
+      data: { userId: u.id, year, entitlement: 30, carryOver: u.email === "clara@demo.de" ? 2 : 0, carryOverExpires: u.email === "clara@demo.de" ? d(`${year}-03-31`) : null },
+    });
+  }
   console.log("Seeded. Login with any e-mail above, password: demo1234");
 }
 

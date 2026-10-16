@@ -6,7 +6,7 @@ import { ApiError, api } from "@/lib/api";
 import { useRemote } from "@/lib/cache";
 import { useSession } from "@/lib/session";
 import { useTheme } from "@/lib/theme";
-import type { LeaveItem, LeaveType } from "@/lib/types";
+import type { Balance, LeaveItem, LeaveType } from "@/lib/types";
 
 const STATUS = { PENDING: ["Offen", "#f59e0b"], APPROVED: ["Genehmigt", "#10b981"], REJECTED: ["Abgelehnt", "#e11d48"], CANCELLED: ["Zurückgezogen", "#64748b"] } as const;
 const dmy = (d: string) => d.split("-").reverse().join(".");
@@ -15,7 +15,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 export default function Leave() {
   const t = useTheme();
   const { user } = useSession();
-  const { data, offline, loading, refresh } = useRemote<{ types: LeaveType[]; requests: LeaveItem[] }>(`leave.${user?.id}`, () => api("/leave"));
+  const { data, offline, loading, refresh } = useRemote<{ balances: Balance[]; types: LeaveType[]; requests: LeaveItem[] }>(`leave.${user?.id}`, () => api("/leave"));
   const [typeId, setTypeId] = useState<string | null>(null);
   const [start, setStart] = useState(today());
   const [end, setEnd] = useState(today());
@@ -45,6 +45,21 @@ export default function Leave() {
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}>
       <Stack.Screen options={{ headerShown: true, title: "Abwesenheit beantragen", headerStyle: { backgroundColor: t.card }, headerTitleStyle: { color: t.text } }} />
       {offline && <Banner text="Offline – Anträge können nur mit Verbindung gesendet werden." />}
+      {data?.balances.map((b) => (
+        <Card key={b.year} style={{ gap: 4 }}>
+          {!b.configured ? <Text style={{ color: t.sub }}>Für {b.year} ist noch kein Urlaubsanspruch hinterlegt.</Text> : (
+            <>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "baseline" }}>
+                <Text style={{ color: t.text, fontWeight: "700" }}>Resturlaub {b.year}</Text>
+                <Text style={{ color: (b.remaining ?? 0) < 0 ? t.danger : t.text, fontSize: 22, fontWeight: "700" }}>{String(b.remaining).replace(".", ",")} <Text style={{ fontSize: 13, color: t.sub, fontWeight: "400" }}>von {String(b.total).replace(".", ",")} Tagen</Text></Text>
+              </View>
+              <Text style={{ color: t.sub, fontSize: 12 }}>Genommen {b.taken} · Geplant {(b.planned ?? 0) + (b.approvedHeld ?? 0)}{b.requested ? ` · Beantragt ${b.requested}` : ""}{b.carryOver ? ` · Übertrag ${b.carryOver}` : ""}</Text>
+              {!!b.expiring && b.carryOverExpires && <Banner text={`${b.expiring} Tag(e) Übertrag verfallen am ${b.carryOverExpires.split("-").reverse().join(".")}, wenn sie nicht genommen werden.`} />}
+              {!!b.forfeited && <Text style={{ color: t.danger, fontSize: 12 }}>{b.forfeited} Tag(e) Übertrag sind verfallen.</Text>}
+            </>
+          )}
+        </Card>
+      ))}
       <Card style={{ gap: 10 }}>
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
           {data?.types.map((x) => {

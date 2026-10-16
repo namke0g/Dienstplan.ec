@@ -1,4 +1,4 @@
-import { prisma, createLeave, deliverPendingNotifications, LeaveError, toYmd } from "@dienstplan/db";
+import { getBalance, prisma, createLeave, deliverPendingNotifications, LeaveError, toYmd } from "@dienstplan/db";
 import { json, mobileUser, unauthorized } from "@/lib/mobileAuth";
 
 const dto = (r: { id: string; status: string; start: Date; end: Date; note: string | null; decisionComment: string | null; shiftType: { id: string; name: string; paid: boolean } }) => ({
@@ -9,11 +9,14 @@ const dto = (r: { id: string; status: string; start: Date; end: Date; note: stri
 export async function GET(req: Request) {
   const me = await mobileUser(req);
   if (!me) return unauthorized();
-  const [types, requests] = await Promise.all([
-    prisma.shiftType.findMany({ where: { wardId: me.wardId, kind: { in: ["VACATION", "SPECIAL_LEAVE"] } }, orderBy: { name: "asc" } }),
+  const year = new Date().getUTCFullYear();
+  const [types, requests, balances] = await Promise.all([
+    prisma.shiftType.findMany({ where: { wardId: me.wardId, kind: { in: ["VACATION", "SPECIAL_LEAVE"] } }, orderBy: [{ consumesLeave: "desc" }, { name: "asc" }] }),
     prisma.leaveRequest.findMany({ where: { userId: me.id }, orderBy: { start: "desc" }, take: 50, include: { shiftType: true } }),
+    Promise.all([getBalance(me.id, year), getBalance(me.id, year + 1)]),
   ]);
   return json({
+    balances: balances.filter((b) => b.configured || b.year === year),
     types: types.map((t) => ({ id: t.id, name: t.name, paid: t.paid, noteRequired: t.kind === "SPECIAL_LEAVE" })),
     requests: requests.map(dto),
   });

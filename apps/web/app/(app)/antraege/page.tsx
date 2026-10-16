@@ -1,4 +1,5 @@
-import { prisma, leaveContext, swapsForPlanner, toYmd } from "@dienstplan/db";
+import { countDays, eachDay } from "@dienstplan/core";
+import { getBalance, prisma, leaveContext, swapsForPlanner, toYmd } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
 import { decideLeaveAction, decideSwapAction } from "@/app/actions";
 
@@ -14,6 +15,15 @@ export default async function AntraegePage({ searchParams }: { searchParams: Pro
     prisma.leaveRequest.findMany({ where: { ...where, status: { in: ["APPROVED", "REJECTED"] } }, orderBy: { decidedAt: "desc" }, take: 15, include: { user: { select: { name: true } }, shiftType: true, decidedBy: { select: { name: true } } } }),
   ]);
   const ctx = await Promise.all(pending.map((r) => leaveContext(r.id)));
+  // balance per requested year for requests that deduct leave: remaining already includes this open request
+  const impact = await Promise.all(pending.map(async (r) => {
+    if (!r.shiftType.consumesLeave) return [];
+    const days = eachDay(toYmd(r.start), toYmd(r.end));
+    return Promise.all([...new Set(days.map((d) => Number(d.slice(0, 4))))].map(async (y) => {
+      const b = await getBalance(r.userId, y);
+      return b.configured ? { year: y, days: countDays(days.filter((d) => d.startsWith(`${y}-`)), b.mode), remaining: b.remaining } : { year: y, days: null, remaining: null };
+    }));
+  }));
   const swaps = me.role === "PDL" ? [] : await swapsForPlanner(me.id);
 
   return (
@@ -49,6 +59,11 @@ export default async function AntraegePage({ searchParams }: { searchParams: Pro
               <div><b>{r.user.name}</b> · {r.shiftType.name} {r.shiftType.paid ? "" : "(unbezahlt)"}<div className="text-sm text-slate-500">{range(toYmd(r.start), toYmd(r.end))}</div></div>
               {r.note && <div className="text-sm">„{r.note}“</div>}
             </div>
+            {impact[i]!.map((m) => (
+              <p key={m.year} className={`text-xs ${m.remaining !== null && m.remaining < 0 ? "text-rose-700" : "text-slate-500"}`}>
+                {m.days === null ? `Kein Urlaubsanspruch für ${m.year} hinterlegt.` : `Urlaub ${m.year}: ${m.days} Tag(e) beantragt · Rest nach Genehmigung ${String(m.remaining).replace(".", ",")} Tag(e)${m.remaining! < 0 ? " – Anspruch überschritten" : ""}`}
+              </p>
+            ))}
             {(c.others.length > 0 || c.clashingShifts > 0) && (
               <ul className="space-y-1 rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-100">
                 {c.clashingShifts > 0 && <li>⚠️ {c.clashingShifts} bereits geplante{c.clashingShifts === 1 ? "r" : ""} Dienst{c.clashingShifts === 1 ? "" : "e"} würde{c.clashingShifts === 1 ? "" : "n"} ersetzt.</li>}
