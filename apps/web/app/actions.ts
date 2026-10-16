@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
+import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLeave, cancelLeave, decideLeave, requestLeaveCancellation, withdrawLeaveCancellation, decideLeaveCancellation, applyPendingLeave, LeaveError,
   createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
   setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError, ForbiddenError,
   createManagedUser, updateManagedUser, setManagedActive, resetManagedPassword, anonymizeUser, type Role,
@@ -120,6 +120,24 @@ export async function cancelLeaveAction(id: string) {
   const me = await requireUser();
   await leaveGuard("/urlaub", () => cancelLeave(id, me.id));
   revalidatePath("/urlaub");
+}
+
+export async function requestLeaveCancellationAction(id: string, form: FormData) {
+  const me = await requireUser();
+  await leaveGuard("/urlaub", () => requestLeaveCancellation(id, me.id, String(form.get("reason") ?? "")));
+  revalidatePath("/urlaub");
+}
+
+export async function withdrawLeaveCancellationAction(id: string) {
+  const me = await requireUser();
+  await leaveGuard("/urlaub", () => withdrawLeaveCancellation(id, me.id));
+  revalidatePath("/urlaub");
+}
+
+export async function decideLeaveCancellationAction(id: string, decision: "APPROVED" | "REJECTED", form: FormData) {
+  const me = await requireUser(["PLANNER", "ADMIN", "PDL"]);
+  await leaveGuard("/antraege", () => decideLeaveCancellation(id, me.id, decision, String(form.get("comment") ?? "")));
+  revalidatePath("/antraege"); revalidatePath("/planer"); revalidatePath("/mein-plan"); revalidatePath("/urlaub"); revalidatePath("/urlaubskonto");
 }
 
 export async function decideLeaveAction(id: string, decision: "APPROVED" | "REJECTED", form: FormData) {

@@ -10,7 +10,7 @@ export interface PlanResponse {
 }
 export interface NotificationItem { id: string; type: string; title: string; body: string; shortNotice: boolean; createdAt: string; read: boolean }
 export interface LeaveType { id: string; name: string; paid: boolean; noteRequired: boolean }
-export interface LeaveItem { id: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; start: string; end: string; note: string | null; decisionComment: string | null; type: { id: string; name: string; paid: boolean } }
+export interface LeaveItem { id: string; status: "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED"; start: string; end: string; note: string | null; decisionComment: string | null; type: { id: string; name: string; paid: boolean }; returnRequested?: boolean; returned?: boolean }
 export interface SwapType { id: string; name: string; startMin: number; endMin: number }
 export interface SwapItem {
   id: string; status: string; date: string; partnerDate: string | null; note: string | null; decisionComment: string | null;

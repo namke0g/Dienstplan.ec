@@ -8,7 +8,10 @@ import { useSession } from "@/lib/session";
 import { useTheme } from "@/lib/theme";
 import type { Balance, LeaveItem, LeaveType } from "@/lib/types";
 
-const STATUS = { PENDING: ["Offen", "#f59e0b"], APPROVED: ["Genehmigt", "#10b981"], REJECTED: ["Abgelehnt", "#e11d48"], CANCELLED: ["Zurückgezogen", "#64748b"] } as const;
+const STATUS = {
+  PENDING: ["Offen", "#f59e0b"], APPROVED: ["Genehmigt", "#10b981"], REJECTED: ["Abgelehnt", "#e11d48"], CANCELLED: ["Zurückgezogen", "#64748b"],
+  RETURNED: ["Zurückgegeben", "#64748b"], RETURN_REQUESTED: ["Rückgabe beantragt", "#f59e0b"],
+} as const;
 const dmy = (d: string) => d.split("-").reverse().join(".");
 const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; }; // local date, not UTC
 
@@ -23,6 +26,8 @@ export default function Leave() {
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [reasons, setReasons] = useState<Record<string, string>>({});
+  const [returning, setReturning] = useState<string | null>(null);
   const selected = data?.types.find((x) => x.id === (typeId ?? data.types[0]?.id));
   const input = { borderWidth: 1, borderColor: t.border, borderRadius: 12, padding: 10, color: t.text } as const;
 
@@ -39,6 +44,13 @@ export default function Leave() {
   async function withdraw(id: string) {
     try { await api(`/leave/${id}`, { method: "DELETE" }); await refresh(); }
     catch (e) { setError(e instanceof ApiError ? e.message : "Nicht möglich. Bist du online?"); }
+  }
+
+  async function giveBack(id: string, action: "return" | "keep") {
+    setBusy(true); setError(null); setSent(false);
+    try { await api(`/leave/${id}`, { body: action === "return" ? { action, reason: reasons[id] ?? "" } : { action } }); setReturning(null); await refresh(); }
+    catch (e) { setError(e instanceof ApiError ? e.message : "Nicht möglich. Bist du online?"); }
+    finally { setBusy(false); }
   }
 
   return (
@@ -80,13 +92,14 @@ export default function Leave() {
         {error && <Banner tone="error" text={error} />}
         {sent && <Banner text="Antrag gesendet. Du bekommst eine Mitteilung bei der Entscheidung." />}
         <Button title={busy ? "Senden …" : "Antrag senden"} onPress={submit} disabled={busy || !selected || offline} />
-        <Text style={{ color: t.sub, fontSize: 12 }}>Krankmeldungen bitte telefonisch bei der Stationsleitung.</Text>
+        <Text style={{ color: t.sub, fontSize: 12 }}>Krankmeldungen bitte unter „Krank melden“ erfassen.</Text>
       </Card>
 
       <Text style={{ color: t.text, fontWeight: "700", fontSize: 16 }}>Meine Anträge</Text>
       {data?.requests.length === 0 && <Card><Text style={{ color: t.sub }}>Noch keine Anträge.</Text></Card>}
       {data?.requests.map((r) => {
-        const [label, color] = STATUS[r.status];
+        const key = r.returned ? "RETURNED" : r.returnRequested ? "RETURN_REQUESTED" : r.status;
+        const [label, color] = STATUS[key];
         return (
           <Card key={r.id} style={{ gap: 4 }}>
             <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
@@ -96,6 +109,14 @@ export default function Leave() {
             <Text style={{ color: t.sub }}>{dmy(r.start)}{r.start !== r.end ? ` – ${dmy(r.end)}` : ""}</Text>
             {r.status === "REJECTED" && r.decisionComment && <Text style={{ color: t.danger }}>Grund: {r.decisionComment}</Text>}
             {r.status === "PENDING" && <Button ghost title="Zurückziehen" onPress={() => withdraw(r.id)} />}
+            {key === "RETURN_REQUESTED" && <Button ghost title="Rückgabe zurücknehmen" disabled={busy} onPress={() => giveBack(r.id, "keep")} />}
+            {key === "APPROVED" && r.start > today() && (returning === r.id ? (
+              <View style={{ gap: 6 }}>
+                <TextInput accessibilityLabel="Grund für die Rückgabe" value={reasons[r.id] ?? ""} onChangeText={(v) => setReasons((p) => ({ ...p, [r.id]: v }))} placeholder="Grund" placeholderTextColor={t.sub} maxLength={500} style={input} />
+                <Button ghost title="Rückgabe beantragen" disabled={busy || offline} onPress={() => giveBack(r.id, "return")} />
+                <Text style={{ color: t.sub, fontSize: 12 }}>Der Urlaub bleibt bestehen, bis Planung oder PDL zustimmen.</Text>
+              </View>
+            ) : <Button ghost title="Urlaub zurückgeben …" onPress={() => setReturning(r.id)} />)}
           </Card>
         );
       })}

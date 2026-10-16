@@ -1,16 +1,18 @@
-import { getBalance, prisma, createLeave, LeaveError, toYmd } from "@dienstplan/db";
+import { localToday } from "@dienstplan/core";
+import { getBalance, prisma, createLeave, leaveDisplayStatus, LeaveError, toYmd } from "@dienstplan/db";
 import { deliverSoon } from "@/lib/deliver";
 import { json, mobileUser, unauthorized } from "@/lib/mobileAuth";
 
-const dto = (r: { id: string; status: string; start: Date; end: Date; note: string | null; decisionComment: string | null; shiftType: { id: string; name: string; paid: boolean } }) => ({
+const dto = (r: { id: string; status: string; start: Date; end: Date; note: string | null; decisionComment: string | null; cancelRequestedAt: Date | null; cancelledAt: Date | null; shiftType: { id: string; name: string; paid: boolean } }) => ({
   id: r.id, status: r.status, start: toYmd(r.start), end: toYmd(r.end), note: r.note, decisionComment: r.decisionComment,
+  returnRequested: leaveDisplayStatus(r) === "RETURN_REQUESTED", returned: leaveDisplayStatus(r) === "RETURNED",
   type: { id: r.shiftType.id, name: r.shiftType.name, paid: r.shiftType.paid },
 });
 
 export async function GET(req: Request) {
   const me = await mobileUser(req);
   if (!me) return unauthorized();
-  const year = new Date().getUTCFullYear();
+  const year = Number(localToday().slice(0, 4));
   const [types, requests, balances] = await Promise.all([
     prisma.shiftType.findMany({ where: { wardId: me.wardId, kind: { in: ["VACATION", "SPECIAL_LEAVE"] } }, orderBy: [{ consumesLeave: "desc" }, { name: "asc" }] }),
     prisma.leaveRequest.findMany({ where: { userId: me.id }, orderBy: { start: "desc" }, take: 50, include: { shiftType: true } }),

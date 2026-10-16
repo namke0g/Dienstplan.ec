@@ -1,6 +1,6 @@
-import { leaveImpact, prisma, leaveContext, swapsForPlanner, toYmd } from "@dienstplan/db";
+import { leaveImpact, prisma, leaveContext, openLeaveReturns, swapsForPlanner, toYmd } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { decideLeaveAction, decideSwapAction } from "@/app/actions";
+import { decideLeaveAction, decideLeaveCancellationAction, decideSwapAction } from "@/app/actions";
 
 const dmy = (d: string) => d.split("-").reverse().join(".");
 const range = (s: string, e: string) => (s === e ? dmy(s) : `${dmy(s)} – ${dmy(e)}`);
@@ -9,9 +9,10 @@ export default async function AntraegePage({ searchParams }: { searchParams: Pro
   const me = await requireUser(["PLANNER", "ADMIN", "PDL"]);
   const { err } = await searchParams;
   const where = { user: { wardId: me.wardId } };
-  const [pending, recent] = await Promise.all([
+  const [pending, recent, returns] = await Promise.all([
     prisma.leaveRequest.findMany({ where: { ...where, status: "PENDING" }, orderBy: { start: "asc" }, include: { user: { select: { name: true } }, shiftType: true } }),
-    prisma.leaveRequest.findMany({ where: { ...where, status: { in: ["APPROVED", "REJECTED"] } }, orderBy: { decidedAt: "desc" }, take: 15, include: { user: { select: { name: true } }, shiftType: true, decidedBy: { select: { name: true } } } }),
+    prisma.leaveRequest.findMany({ where: { ...where, OR: [{ status: { in: ["APPROVED", "REJECTED"] } }, { status: "CANCELLED", cancelledAt: { not: null } }] }, orderBy: { decidedAt: "desc" }, take: 15, include: { user: { select: { name: true } }, shiftType: true, decidedBy: { select: { name: true } }, cancelledBy: { select: { name: true } } } }),
+    openLeaveReturns(me.wardId),
   ]);
   const ctx = await Promise.all(pending.map((r) => leaveContext(r.id)));
   // per requested year: days this request deducts and what is left after approval (same rules as the check when it was filed)
@@ -42,7 +43,24 @@ export default async function AntraegePage({ searchParams }: { searchParams: Pro
           ))}
         </section>
       )}
-      {pending.length === 0 && swaps.length === 0 && <p className="card text-sm text-slate-500">Keine offenen Anträge.</p>}
+      {returns.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="font-semibold">Rückgabe von genehmigtem Urlaub</h2>
+          {returns.map((r) => (
+            <form key={r.id} className="card space-y-3" aria-label={`Rückgabe ${r.user.name}`}>
+              <div className="text-sm"><b>{r.user.name}</b> · {r.shiftType.name} · {range(toYmd(r.start), toYmd(r.end))}
+                {r.cancelReason && <div>„{r.cancelReason}“</div>}</div>
+              <p className="text-xs text-slate-500">Bei Zustimmung werden die Tage im Plan (auch im veröffentlichten) wieder frei und dem Urlaubskonto gutgeschrieben. Neue Dienste an diesen Tagen laufen wie gewohnt über die Genehmigung.</p>
+              <label className="block text-sm font-medium">Kommentar <span className="font-normal text-slate-500">(bei Ablehnung Pflicht)</span><textarea name="comment" rows={2} className="input mt-1" /></label>
+              <div className="flex gap-2">
+                <button className="btn" formAction={decideLeaveCancellationAction.bind(null, r.id, "APPROVED")}>Zustimmen</button>
+                <button className="btn-ghost !border-rose-300 !text-rose-700" formAction={decideLeaveCancellationAction.bind(null, r.id, "REJECTED")}>Ablehnen</button>
+              </div>
+            </form>
+          ))}
+        </section>
+      )}
+      {pending.length === 0 && swaps.length === 0 && returns.length === 0 && <p className="card text-sm text-slate-500">Keine offenen Anträge.</p>}
       {pending.length > 0 && <h2 className="font-semibold">Abwesenheitsanträge</h2>}
       {pending.map((r, i) => {
         const c = ctx[i]!;
@@ -78,8 +96,8 @@ export default async function AntraegePage({ searchParams }: { searchParams: Pro
           <ul className="space-y-1 text-sm">
             {recent.map((r) => (
               <li key={r.id} className="card !p-3">
-                {r.status === "APPROVED" ? "✅" : "❌"} <b>{r.user.name}</b> · {r.shiftType.name} · {range(toYmd(r.start), toYmd(r.end))}
-                <span className="text-slate-400"> — {r.decidedBy?.name}</span>
+                {r.status === "APPROVED" ? "✅" : r.status === "CANCELLED" ? "↩️" : "❌"} <b>{r.user.name}</b> · {r.shiftType.name} · {range(toYmd(r.start), toYmd(r.end))}
+                <span className="text-slate-400"> — {r.decidedBy?.name}{r.status === "CANCELLED" && <>, zurückgegeben mit Zustimmung von {r.cancelledBy?.name ?? "?"}</>}{r.status === "APPROVED" && r.cancelRequestedAt && " · Rückgabe beantragt"}</span>
                 {r.decisionComment && <div className="text-slate-500">„{r.decisionComment}“</div>}
               </li>
             ))}
