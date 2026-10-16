@@ -15,6 +15,13 @@ enum Role {
   EMPLOYEE
 }
 
+enum ShiftKind {
+  WORK
+  VACATION
+  SPECIAL_LEAVE
+  SICK
+}
+
 enum PlanStatus {
   DRAFT
   IN_REVIEW
@@ -69,6 +76,10 @@ model ShiftType {
   startMin Int
   endMin   Int
   color    String  @default("#3b82f6")
+  /// WORK shifts have times; every other kind is an all-day absence
+  kind     ShiftKind @default(WORK)
+  /// absence only: paid (Urlaub, Entgeltfortzahlung) or unpaid
+  paid     Boolean @default(true)
   shifts   Shift[]
 
   @@unique([wardId, code])

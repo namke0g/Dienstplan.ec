@@ -18,7 +18,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   const ics = buildIcs(
     shifts.flatMap((s) => {
       const t = types.get(s.shiftTypeId);
-      return t ? [{ id: s.id, date: s.date, sequence: s.sequence, type: { id: t.id, name: t.name, startMin: t.startMin, endMin: t.endMin } }] : [];
+      return t ? [{ id: s.id, date: s.date, sequence: s.sequence, type: { id: t.id, name: t.name, startMin: t.startMin, endMin: t.endMin, kind: t.kind } }] : [];
     }),
     { calName: "Dienstplan" },
   );

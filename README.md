@@ -8,6 +8,7 @@ Dienstplanung für Stationen: Der Plan wird von der Planung erstellt und geht er
 | Planungsraster, Regelprüfung (11 h Ruhezeit, max. 6 Tage am Stück, Mindestbesetzung) | ✅ |
 | Genehmigung PDL + Betriebsrat (parallel, Ablehnung nur mit Kommentar, Neuversion nach Änderung) | ✅ |
 | Mitarbeiterportal: veröffentlichter Plan, Teamansicht, persönliche Einträge | ✅ |
+| Abwesenheiten: Urlaub, unbezahlter Urlaub, Krank mit/ohne Entgelt, Sonderurlaub (zählen nicht als Arbeitstage/Besetzung; Krankheit für Kolleg:innen nur als „abwesend“) | ✅ |
 | Kalender-Abo (ICS, stabile UIDs, widerrufbarer Link) für iOS & Google | ✅ |
 | In-App-Mitteilungen (Plan veröffentlicht / Dienst geändert, Kurzfristig-Markierung) | ✅ |
 | Push (Expo / Web Push), Mobile App (Expo) | ⏳ nächster Schritt |
