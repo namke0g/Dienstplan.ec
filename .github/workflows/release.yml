@@ -1,0 +1,70 @@
+# Release: on a tag "v*" builds the Docker images, pushes them to GitHub Container Registry and publishes a GitHub
+# pre-release with the notes from CHANGELOG.md. On pull requests that touch the release inputs it only builds and starts
+# the demo stack once, so a broken release is noticed before tagging.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths: [".github/workflows/release.yml", "Dockerfile", "docker-compose.demo.yml", "packages/db/prisma/**"]
+
+permissions:
+  contents: write
+  packages: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  images:
+    name: Docker images
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build
+        run: |
+          docker build --target web -t dienstplan-web .
+          docker build --target migrate -t dienstplan-migrate .
+      - name: Demo stack starts and serves the login page
+        run: |
+          docker compose -f docker-compose.demo.yml up -d --build
+          for i in $(seq 1 100); do
+            curl -fsS http://localhost:3000/login >/dev/null && { echo "demo stack up"; exit 0; }
+            sleep 3
+          done
+          docker compose -f docker-compose.demo.yml ps -a
+          for svc in migrate web; do
+            docker compose -f docker-compose.demo.yml logs --no-color --tail 20 "$svc" 2>&1 | sed 's/%/%25/g' | tr '\n' '\r' | sed "s/\r/%0A/g; s/^/::error title=$svc log::/"; echo
+          done
+          exit 1
+      - name: Push to GitHub Container Registry
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          repo="ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
+          v="${GITHUB_REF_NAME#v}"
+          for t in web migrate; do
+            for tag in "$v" latest; do docker tag "dienstplan-$t" "$repo/$t:$tag" && docker push "$repo/$t:$tag"; done
+          done
+
+  publish:
+    name: GitHub release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [images]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Create the pre-release with notes from CHANGELOG.md
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          # the section of this version: from its heading up to the next "## "
+          awk -v v="$v" '$0 ~ "^## \\[?"v"\\]?" {on=1; next} /^## / && on {exit} on' CHANGELOG.md > notes.md
+          test -s notes.md || { echo "::error::CHANGELOG.md has no section for $v"; exit 1; }
+          gh release create "$GITHUB_REF_NAME" --prerelease --title "Dienstplan $v (Testversion)" --notes-file notes.md

@@ -9,7 +9,6 @@ import {
 process.env.WEB_PUSH_EXTRA_HOSTS = "push.example"; // the fake push service used in these tests
 
 let anna: string, ben: string;
-const noExpo = (async () => new Response(JSON.stringify({ data: [] }))) as unknown as typeof fetch;
 const sub = (name: string): WebTarget => ({ endpoint: `https://push.example/${name}`, p256dh: `p256-${name}`, auth: `auth-${name}` });
 function recorder(result: (t: WebTarget) => WebResult = () => "ok") {
   const calls: { target: WebTarget; msg: WebMessage }[] = [];
@@ -34,7 +33,7 @@ describe("Web Push channel", () => {
     await registerWebPush(anna, sub("anna-laptop"));
     const n = await notify(anna, { shortNotice: true });
     const r = recorder();
-    const res = await deliverPendingNotifications(noExpo, r.send);
+    const res = await deliverPendingNotifications(r.send);
     expect(res.sent).toBe(1);
     expect(r.calls).toEqual([{ target: sub("anna-laptop"), msg: { id: n.id, title: "Dienstplan geändert", body: WEB_PUSH_BODY, urgent: true, url: "/benachrichtigungen" } }]);
     expect(r.calls[0]!.msg.body).not.toContain("Anna");
@@ -46,7 +45,7 @@ describe("Web Push channel", () => {
     await registerWebPush(anna, sub("new"));
     await notify(anna);
     const r = recorder((t) => (t.endpoint.endsWith("old") ? "gone" : "ok"));
-    const res = await deliverPendingNotifications(noExpo, r.send);
+    const res = await deliverPendingNotifications(r.send);
     expect(res).toMatchObject({ sent: 1, removed: 1 });
     expect((await prisma.deviceToken.findMany({ where: { userId: anna } })).map((d) => d.token)).toEqual(["https://push.example/new"]);
   });
@@ -54,15 +53,15 @@ describe("Web Push channel", () => {
   it("retries later when the push service fails transiently, but not if another device already got it", async () => {
     await registerWebPush(anna, sub("flaky"));
     const n = await notify(anna);
-    await deliverPendingNotifications(noExpo, recorder(() => "error").send);
+    await deliverPendingNotifications(recorder(() => "error").send);
     expect((await prisma.notification.findUniqueOrThrow({ where: { id: n.id } })).pushAttemptedAt).toBeNull(); // released for retry
     const second = recorder();
-    await deliverPendingNotifications(noExpo, second.send);
+    await deliverPendingNotifications(second.send);
     expect(second.calls).toHaveLength(1);
 
     await registerWebPush(ben, sub("ben-a")); await registerWebPush(ben, sub("ben-b"));
     const m = await notify(ben);
-    await deliverPendingNotifications(noExpo, recorder((t) => (t.endpoint.endsWith("ben-a") ? "error" : "ok")).send);
+    await deliverPendingNotifications(recorder((t) => (t.endpoint.endsWith("ben-a") ? "error" : "ok")).send);
     const after = await prisma.notification.findUniqueOrThrow({ where: { id: m.id } });
     expect(after.deliveredAt).not.toBeNull();
     expect(after.pushAttemptedAt).not.toBeNull(); // not retried: one browser has it
@@ -74,34 +73,17 @@ describe("Web Push channel", () => {
     await prisma.user.update({ where: { id: anna }, data: { pushEnabled: false } });
     await notify(anna);
     const r = recorder();
-    await deliverPendingNotifications(noExpo, r.send);
+    await deliverPendingNotifications(r.send);
     expect(r.calls).toHaveLength(0);
 
     await registerWebPush(ben, sub("ben"));
     await notify(ben);
-    await deliverPendingNotifications(noExpo, null); // VAPID not configured
+    await deliverPendingNotifications(null); // VAPID not configured
     await prisma.deviceToken.create({ data: { userId: ben, platform: "WEB", token: "https://push.example/legacy-no-keys" } });
     await notify(ben);
     const r2 = recorder();
-    await deliverPendingNotifications(noExpo, r2.send);
+    await deliverPendingNotifications(r2.send);
     expect(r2.calls.map((c) => c.target.endpoint)).toEqual(["https://push.example/ben"]);
-  });
-
-  it("phones and browsers of the same person both get the message; Expo never sees browser endpoints", async () => {
-    await prisma.deviceToken.create({ data: { userId: anna, platform: "IOS", token: "ExponentPushToken[anna-phone]" } });
-    await registerWebPush(anna, sub("anna-pc"));
-    await notify(anna);
-    const expoTargets: string[] = [];
-    const expo = (async (_u: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body)) as { to: string; body: string }[];
-      body.forEach((m) => expoTargets.push(m.to));
-      return new Response(JSON.stringify({ data: body.map(() => ({ status: "ok" })) }));
-    }) as unknown as typeof fetch;
-    const r = recorder();
-    const res = await deliverPendingNotifications(expo, r.send);
-    expect(expoTargets).toEqual(["ExponentPushToken[anna-phone]"]);
-    expect(r.calls.map((c) => c.target.endpoint)).toEqual(["https://push.example/anna-pc"]);
-    expect(res.sent).toBe(2);
   });
 
   it("overlapping runs never send the same notification twice", async () => {
@@ -109,7 +91,7 @@ describe("Web Push channel", () => {
     for (let i = 0; i < 20; i++) await notify(anna, { title: `N${i}` });
     const r = recorder();
     const slow: WebSender = async (t, m) => { await new Promise((ok) => setTimeout(ok, 5)); return r.send(t, m); };
-    await Promise.all([deliverPendingNotifications(noExpo, slow), deliverPendingNotifications(noExpo, slow), deliverPendingNotifications(noExpo, slow)]);
+    await Promise.all([deliverPendingNotifications(slow), deliverPendingNotifications(slow), deliverPendingNotifications(slow)]);
     const titles = r.calls.map((c) => c.msg.title);
     expect(titles).toHaveLength(20);
     expect(new Set(titles).size).toBe(20);
@@ -146,7 +128,7 @@ describe("review fixes", () => {
     await prisma.deviceToken.create({ data: { userId: anna, platform: "WEB", token: "https://intranet.klinik.local/x", p256dh: "a", auth: "b" } });
     await notify(anna);
     const r = recorder();
-    const res = await deliverPendingNotifications(noExpo, r.send);
+    const res = await deliverPendingNotifications(r.send);
     expect(r.calls).toHaveLength(0);
     expect(res.removed).toBe(1);
   });
@@ -155,10 +137,10 @@ describe("review fixes", () => {
     const u = (await createManagedUser(await adminId(), { name: "Pia Push", email: "pia.push@demo.de", role: "EMPLOYEE", password: "pia-passwort-123" })).user;
     const count = () => prisma.deviceToken.count({ where: { userId: u.id, platform: "WEB" } });
     await registerWebPush(u.id, sub("pia-1"));
-    await prisma.deviceToken.create({ data: { userId: u.id, platform: "IOS", token: "ExponentPushToken[pia]" } });
+    await registerWebPush(u.id, sub("pia-second-pc"));
     await changePassword(u.id, "pia-passwort-123", "pia-passwort-456");
     expect(await count()).toBe(0);
-    expect(await prisma.deviceToken.count({ where: { userId: u.id, platform: "IOS" } })).toBe(0); // phones too: a lost phone must stop getting pushes
+    expect(await prisma.deviceToken.count({ where: { userId: u.id } })).toBe(0); // every browser of that person
     await registerWebPush(u.id, sub("pia-2"));
     await resetManagedPassword(await adminId(), u.id);
     expect(await count()).toBe(0);
@@ -177,23 +159,8 @@ describe("review fixes", () => {
     await notify(anna);
     const slow: WebSender = async () => { await new Promise((ok) => setTimeout(ok, 300)); return "ok"; };
     const t0 = Date.now();
-    await deliverPendingNotifications(noExpo, slow);
+    await deliverPendingNotifications(slow);
     expect(Date.now() - t0).toBeLessThan(1200); // sequential would be about 1.8 s
-  });
-
-  it("#3 a hanging Expo request is cut off by the timeout and the message retried later", async () => {
-    process.env.PUSH_TIMEOUT_MS = "200";
-    try {
-      await prisma.deviceToken.create({ data: { userId: anna, platform: "IOS", token: "ExponentPushToken[anna-hang]" } });
-      const n = await notify(anna);
-      const hang = ((_u: string, init: RequestInit) => new Promise<Response>((_ok, fail) => init.signal?.addEventListener("abort", () => fail(new Error("aborted"))))) as unknown as typeof fetch;
-      const t0 = Date.now();
-      await deliverPendingNotifications(hang, null);
-      expect(Date.now() - t0).toBeLessThan(2000);
-      const after = await prisma.notification.findUniqueOrThrow({ where: { id: n.id } });
-      expect(after.pushAttemptedAt).toBeNull(); // released for retry
-      expect(after.pushClaimedUntil).toBeNull();
-    } finally { delete process.env.PUSH_TIMEOUT_MS; }
   });
 
   it("#4 push service answers are classified: dead subscriptions removed, temporary ones retried, others dropped", async () => {
@@ -204,13 +171,13 @@ describe("review fixes", () => {
 
     await registerWebPush(anna, sub("rotated-key")); // e.g. VAPID keys were changed: 403 forever
     const n = await notify(anna);
-    const res = await deliverPendingNotifications(noExpo, recorder(() => classifyPushStatus(403)).send);
+    const res = await deliverPendingNotifications(recorder(() => classifyPushStatus(403)).send);
     expect(res.removed).toBe(1);
     expect((await prisma.notification.findUniqueOrThrow({ where: { id: n.id } })).pushAttemptedAt).not.toBeNull(); // not retried 288 times
 
     await registerWebPush(ben, sub("too-big"));
     const m = await notify(ben);
-    await deliverPendingNotifications(noExpo, recorder(() => "failed").send);
+    await deliverPendingNotifications(recorder(() => "failed").send);
     expect(await prisma.deviceToken.count({ where: { token: "https://push.example/too-big" } })).toBe(1); // subscription kept
     expect((await prisma.notification.findUniqueOrThrow({ where: { id: m.id } })).pushAttemptedAt).not.toBeNull(); // message not retried
   });
@@ -221,10 +188,10 @@ describe("review fixes", () => {
     // a run claimed it and the process died before finishing
     await prisma.notification.update({ where: { id: n.id }, data: { pushClaimedUntil: new Date(Date.now() + 10 * 60_000) } });
     const r = recorder();
-    await deliverPendingNotifications(noExpo, r.send);
+    await deliverPendingNotifications(r.send);
     expect(r.calls).toHaveLength(0); // lease still running: nobody else touches it
     await prisma.notification.update({ where: { id: n.id }, data: { pushClaimedUntil: new Date(Date.now() - 1000) } });
-    await deliverPendingNotifications(noExpo, r.send);
+    await deliverPendingNotifications(r.send);
     expect(r.calls).toHaveLength(1);
     expect((await prisma.notification.findUniqueOrThrow({ where: { id: n.id } })).deliveredAt).not.toBeNull();
   });
@@ -233,7 +200,7 @@ describe("review fixes", () => {
     await registerWebPush(anna, sub("anna"));
     const n = await notify(anna);
     const broken: WebSender = async () => { throw new Error("boom"); };
-    await deliverPendingNotifications(noExpo, broken);
+    await deliverPendingNotifications(broken);
     const after = await prisma.notification.findUniqueOrThrow({ where: { id: n.id } });
     expect(after.pushAttemptedAt).toBeNull();
     expect(after.pushClaimedUntil).toBeNull();
@@ -255,7 +222,7 @@ describe("review fixes", () => {
     const a = await notify(anna, { title: "A", shortNotice: true });
     const b = await notify(anna, { title: "B" });
     const r = recorder();
-    await deliverPendingNotifications(noExpo, r.send);
+    await deliverPendingNotifications(r.send);
     expect(r.calls.map((c) => c.msg.id).sort()).toEqual([a.id, b.id].sort());
   });
 });
@@ -271,7 +238,7 @@ describe("second review fixes", () => {
       const slow = recorder();
       const send: WebSender = async (t, m) => { await new Promise((ok) => setTimeout(ok, 100)); return slow.send(t, m); };
       const t0 = Date.now();
-      await deliverPendingNotifications(noExpo, send);
+      await deliverPendingNotifications(send);
       expect(Date.now() - t0).toBeLessThan(1000); // 30 browsers × 100 ms / 10 parallel would be 300 ms+; stopped near 250 ms
       // only 10 browsers are kept per person; the run reached some of them, so the message counts as delivered
       expect((await prisma.notification.findUniqueOrThrow({ where: { id: n.id } })).deliveredAt).not.toBeNull();
@@ -284,7 +251,7 @@ describe("second review fixes", () => {
       await registerWebPush(anna, sub("late"));
       const n = await notify(anna);
       await new Promise((ok) => setTimeout(ok, 5));
-      await deliverPendingNotifications(noExpo, recorder().send);
+      await deliverPendingNotifications(recorder().send);
       const after = await prisma.notification.findUniqueOrThrow({ where: { id: n.id } });
       expect(after.pushAttemptedAt).toBeNull();
       expect(after.pushClaimedUntil).toBeNull();
@@ -302,7 +269,7 @@ describe("second review fixes", () => {
       const leased = await notify(anna, { title: "lease running" }); // claimed 5 minutes ago by a run that is still working
       await prisma.notification.update({ where: { id: leased.id }, data: { pushClaimedUntil: new Date(Date.now() + 10 * 60_000) } });
       const r = recorder();
-      await deliverPendingNotifications(noExpo, r.send);
+      await deliverPendingNotifications(r.send);
       expect(r.calls.map((c) => c.msg.title)).toEqual(["11 hours old"]); // bug: in UTC+14 the first looked 25 h old and the lease looked expired
     } finally {
       await prisma.$executeRawUnsafe(`ALTER ROLE dienstplan RESET timezone`);

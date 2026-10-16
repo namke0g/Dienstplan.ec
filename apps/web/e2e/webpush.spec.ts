@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Browser, type Page } from "@playwright/test";
 import { createServer, type Server } from "node:https";
 import { createECDH, randomBytes } from "node:crypto";
 import { execSync } from "node:child_process";
@@ -39,8 +39,23 @@ async function login(page: Page, email: string) {
   await page.getByRole("button", { name: "Anmelden" }).click();
   await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 }
-const mobile = async (request: APIRequestContext, email: string) =>
-  ({ headers: { authorization: `Bearer ${(await (await request.post("/api/mobile/login", { data: { email, password: "demo1234" } })).json()).token}` } });
+/** An employee files unpaid leave through the web form in a separate browser; resolves with how long the request took. */
+async function fileLeave(browser: Browser, email: string, inDays: number) {
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
+  await login(page, email);
+  await page.goto("/urlaub");
+  const d = new Date(Date.now() + inDays * 86_400_000).toISOString().slice(0, 10);
+  await page.getByLabel("Art").selectOption({ label: "Unbezahlter Urlaub (unbezahlt)" });
+  await page.getByLabel("Von").fill(d);
+  await page.getByLabel("Bis").fill(d);
+  const t0 = Date.now();
+  await page.getByRole("button", { name: "Antrag senden" }).click();
+  await expect(page.getByRole("status")).toContainText("Antrag gesendet");
+  const took = Date.now() - t0;
+  await ctx.close();
+  return took;
+}
 
 test("service worker is served and the browser toggle appears when Web Push is configured", async ({ page, request }) => {
   const sw = await request.get("/sw.js");
@@ -71,17 +86,13 @@ test("subscription endpoint: login required, input validated, own subscriptions 
   expect((await api.delete("/api/push/register", { data: { endpoint: "https://localhost:3198/anna-pc" } })).status()).toBe(204);
 });
 
-test("a real event reaches the browser's push service: encrypted, VAPID-signed, with urgency and TTL", async ({ page, request }) => {
+test("a real event reaches the browser's push service: encrypted, VAPID-signed, with urgency and TTL", async ({ page, browser }) => {
   // the planner subscribes this browser; then an employee files a leave request, which notifies the planner
   await login(page, "planer@demo.de");
   expect((await page.request.post("/api/push/register", { data: subscription("planner-pc") })).status()).toBe(204);
   received.length = 0;
 
-  const anna = await mobile(request, "anna@demo.de");
-  const types = (await (await request.get("/api/mobile/leave", anna)).json()).types as { id: string; name: string }[];
-  const d = new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10);
-  const r = await request.post("/api/mobile/leave", { ...anna, data: { typeId: types.find((t) => t.name === "Unbezahlter Urlaub")!.id, start: d, end: d } });
-  expect(r.status()).toBe(201);
+  await fileLeave(browser, "anna@demo.de", 90);
 
   await expect.poll(() => received.filter((x) => x.path === "/planner-pc").length).toBe(1);
   const msg = received.find((x) => x.path === "/planner-pc")!;
@@ -96,33 +107,23 @@ test("a real event reaches the browser's push service: encrypted, VAPID-signed, 
   await expect(page.getByText("Neuer Abwesenheitsantrag").first()).toBeVisible();
 });
 
-test("a subscription the push service reports as gone is removed and not used again", async ({ page, request }) => {
+test("a subscription the push service reports as gone is removed and not used again", async ({ page, browser }) => {
   await login(page, "pdl@demo.de");
   expect((await page.request.post("/api/push/register", { data: subscription("pdl-gone") })).status()).toBe(204);
   received.length = 0;
-  const ben = await mobile(request, "ben@demo.de");
-  const types = (await (await request.get("/api/mobile/leave", ben)).json()).types as { id: string; name: string }[];
-  const unpaid = types.find((t) => t.name === "Unbezahlter Urlaub")!.id;
-  const day = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
-  await request.post("/api/mobile/leave", { ...ben, data: { typeId: unpaid, start: day(100), end: day(100) } });
+  await fileLeave(browser, "ben@demo.de", 100);
   await expect.poll(() => received.filter((x) => x.path === "/pdl-gone").length).toBe(1); // got 410
-  await request.post("/api/mobile/leave", { ...ben, data: { typeId: unpaid, start: day(110), end: day(110) } });
+  await fileLeave(browser, "ben@demo.de", 110);
   await page.waitForTimeout(1000);
   expect(received.filter((x) => x.path === "/pdl-gone").length).toBe(1); // not contacted again
 });
 
-test("a slow push service does not make anyone wait: the request answers first, the push follows", async ({ page, request }) => {
+test("a slow push service does not make anyone wait: the request answers first, the push follows", async ({ page, browser }) => {
   await login(page, "planer@demo.de");
   expect((await page.request.post("/api/push/register", { data: subscription("slow-pc") })).status()).toBe(204);
   received.length = 0;
-  const eva = await mobile(request, "eva@demo.de");
-  const types = (await (await request.get("/api/mobile/leave", eva)).json()).types as { id: string; name: string }[];
-  const d = new Date(Date.now() + 120 * 86_400_000).toISOString().slice(0, 10);
-  const t0 = Date.now();
-  const r = await request.post("/api/mobile/leave", { ...eva, data: { typeId: types.find((t) => t.name === "Unbezahlter Urlaub")!.id, start: d, end: d } });
-  const took = Date.now() - t0;
-  expect(r.status()).toBe(201);
-  expect(took).toBeLessThan(2000); // the push service needs 3 s; before the fix the request waited for it
+  const took = await fileLeave(browser, "eva@demo.de", 120);
+  expect(took).toBeLessThan(2500); // the push service needs 3 s; before the fix the request waited for it
   await expect.poll(() => received.filter((x) => x.path === "/slow-pc").length, { timeout: 10_000 }).toBe(1); // and the push still arrives
 });
 

@@ -2,8 +2,6 @@ import webpush from "web-push";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "./client";
 
-const EXPO_URL = () => process.env.EXPO_PUSH_URL ?? "https://exp.host/--/api/v2/push/send";
-const CHUNK = 100;
 /** Per request to a push provider; a slow provider must never hold up delivery for everyone else. */
 const timeoutMs = () => Number(process.env.PUSH_TIMEOUT_MS ?? 10_000);
 /** How long a delivery run may hold a notification; if the process dies, the next run takes over after this. */
@@ -13,8 +11,6 @@ const runBudgetMs = () => Number(process.env.PUSH_RUN_BUDGET_MS ?? 8 * 60_000);
 const BATCH = 200;
 const WEB_CONCURRENCY = 10;
 
-type Fetch = typeof fetch;
-interface Ticket { status: "ok" | "error"; id?: string; message?: string; details?: { error?: string } }
 
 /** A browser subscription (Web Push) and the result of sending to it. */
 export interface WebTarget { endpoint: string; p256dh: string; auth: string }
@@ -25,7 +21,7 @@ export type WebSender = (target: WebTarget, msg: WebMessage) => Promise<WebResul
 
 /**
  * Browser notifications can pop up on shared screens (e.g. the ward PC), so their text stays generic: no names, dates or
- * reasons. Details are only visible after login. (The phone app keeps the full text: it is a personal device behind a lock.)
+ * reasons. Details are only visible after login.
  */
 export const WEB_PUSH_BODY = "Es gibt eine neue Mitteilung. Öffne Dienstplan für Details.";
 
@@ -87,12 +83,11 @@ async function pool<T>(items: T[], limit: number, fn: (item: T) => Promise<void>
 }
 
 /**
- * Sends every notification that has not been delivered yet to the owner's devices: phones via Expo (relayed to APNs/FCM),
- * browsers via Web Push. A run leases the notifications it works on (so overlapping runs never send twice, and a run that
+ * Sends every notification that has not been delivered yet to the owner's browsers via Web Push. A run leases the notifications it works on (so overlapping runs never send twice, and a run that
  * dies mid-way is taken over once the lease expires). Dead subscriptions are removed; when a provider is unreachable the
  * notification is released and tried again later (up to 24 h). Never throws: the in-app notification is the source of truth.
  */
-export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webSend: WebSender | null = webPushSender()): Promise<{ sent: number; failed: number; removed: number }> {
+export async function deliverPendingNotifications(webSend: WebSender | null = webPushSender()): Promise<{ sent: number; failed: number; removed: number }> {
   const result = { sent: 0, failed: 0, removed: 0 };
   let claimedIds: string[] = [];
   const retry = new Set<string>();
@@ -115,44 +110,6 @@ export async function deliverPendingNotifications(fetchImpl: Fetch = fetch, webS
     const pending = await prisma.notification.findMany({ where: { id: { in: claimedIds } }, include: { user: { include: { devices: true } } } });
 
     const dead = new Set<string>();
-
-    // phones (Expo)
-    const messages = pending.flatMap((n) =>
-      !n.user.pushEnabled ? [] : n.user.devices.filter((d) => d.platform !== "WEB").map((d) => ({
-        notificationId: n.id, deviceId: d.id,
-        body: {
-          to: d.token, title: n.title, body: n.body, sound: "default", priority: n.shortNotice ? "high" : "normal",
-          channelId: n.shortNotice ? "urgent" : "default", data: { type: n.type, notificationId: n.id },
-        },
-      })),
-    );
-    for (let i = 0; i < messages.length; i += CHUNK) {
-      const chunk = messages.slice(i, i + CHUNK);
-      if (Date.now() >= until) { chunk.forEach((m) => retry.add(m.notificationId)); continue; } // out of time: next run
-      try {
-        const res = await fetchImpl(EXPO_URL(), {
-          method: "POST",
-          headers: { "content-type": "application/json", accept: "application/json", ...(process.env.EXPO_ACCESS_TOKEN ? { authorization: `Bearer ${process.env.EXPO_ACCESS_TOKEN}` } : {}) },
-          body: JSON.stringify(chunk.map((m) => m.body)),
-          signal: AbortSignal.timeout(timeoutMs()),
-        });
-        if (!res.ok) throw new Error(`Expo push responded ${res.status}`);
-        const { data } = (await res.json()) as { data: Ticket[] };
-        data.forEach((t, idx) => {
-          const m = chunk[idx];
-          if (!m) return;
-          if (t.status === "ok") { result.sent++; delivered.add(m.notificationId); }
-          else {
-            result.failed++;
-            if (t.details?.error === "DeviceNotRegistered") dead.add(m.deviceId);
-          }
-        });
-      } catch (e) {
-        result.failed += chunk.length;
-        chunk.forEach((m) => retry.add(m.notificationId)); // provider unreachable or too slow: try again later
-        console.error("push delivery failed", e);
-      }
-    }
 
     // browsers (Web Push), in parallel with a per-request timeout
     if (webSend) {
@@ -219,11 +176,10 @@ export async function unregisterWebPush(userId: string, endpoint: string) {
 }
 
 /**
- * Ends all push subscriptions of a person (browsers and phones). Called whenever their sessions are ended on the server (password change or
+ * Ends all browser push subscriptions of a person. Called whenever their sessions are ended on the server (password change or
  * reset, role/e-mail change), so a shared PC whose session just ended stops showing their notifications. A browser that is
  * still signed in re-registers itself on the next page load.
  */
 export async function endBrowserPush(userId: string, tx: Pick<Prisma.TransactionClient, "deviceToken"> = prisma) {
-  // all devices: a lost phone must stop getting full-text pushes once the password is changed or reset
   return (await tx.deviceToken.deleteMany({ where: { userId } })).count;
 }

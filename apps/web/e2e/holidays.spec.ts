@@ -63,7 +63,7 @@ test("admins see the state's holidays and manage local extra days; others cannot
   }
 });
 
-test("holidays are marked in the roster and are not deducted from leave", async ({ page, request }) => {
+test("holidays are marked in the roster and are not deducted from leave", async ({ page }) => {
   const w = weekWithOneHoliday();
   const [hDate, hName] = w.holiday;
 
@@ -79,15 +79,12 @@ test("holidays are marked in the roster and are not deducted from leave", async 
   await page.getByRole("form", { name: "Anspruch Felix Braun" }).getByRole("button", { name: "Speichern" }).click();
   await expect(page.getByRole("row", { name: /Felix Braun/ }).getByRole("cell").first()).toHaveText("30");
 
-  const token = (await (await request.post("/api/mobile/login", { data: { email: "felix@demo.de", password: "demo1234" } })).json()).token;
-  const auth = { headers: { authorization: `Bearer ${token}` } };
-  const info = await (await request.get("/api/mobile/leave", auth)).json();
-  const urlaub = info.types.find((t: { name: string }) => t.name === "Urlaub").id;
-  expect((await request.post("/api/mobile/leave", { ...auth, data: { typeId: urlaub, start: w.mon, end: w.fri } })).status()).toBe(201);
-  const b = (await (await request.get("/api/mobile/leave", auth)).json()).balances.find((x: { year: number }) => x.year === w.year);
-  expect(b.requested).toBe(4);
-
-  // the phone app gets the holidays of the month too
-  const plan = await (await request.get(`/api/mobile/plan?m=${hDate.slice(0, 7)}`, auth)).json();
-  expect(plan.holidays).toEqual(expect.arrayContaining([{ date: hDate, name: hName }]));
+  await login(page, "felix@demo.de");
+  await page.goto("/urlaub");
+  await page.getByLabel("Art").selectOption({ label: "Urlaub" });
+  await page.getByLabel("Von").fill(w.mon);
+  await page.getByLabel("Bis").fill(w.fri);
+  await page.getByRole("button", { name: "Antrag senden" }).click();
+  await expect(page.getByRole("status")).toContainText("Antrag gesendet");
+  await expect(page.getByText("Beantragt (offen)").locator("xpath=following-sibling::dd")).toHaveText("4");
 });

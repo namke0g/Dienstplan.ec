@@ -1,0 +1,39 @@
+# Demo / test stack: try Dienstplan on your own computer, no domain or HTTPS needed.
+#   docker compose -f docker-compose.demo.yml up --build
+# then open http://localhost:3000 (demo logins below; password demo1234). Data persists in the "demodata" volume;
+# remove it with `docker compose -f docker-compose.demo.yml down -v` to start fresh. NOT for production (fixed secrets).
+name: dienstplan-demo
+
+x-db-url: &db-url postgresql://dienstplan:demo@db:5432/dienstplan
+
+services:
+  db:
+    image: postgres:16-bookworm
+    environment: { POSTGRES_USER: dienstplan, POSTGRES_PASSWORD: demo, POSTGRES_DB: dienstplan }
+    volumes: [demodata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U dienstplan -d dienstplan"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build: { context: ., target: migrate }
+    environment: { DATABASE_URL: *db-url }
+    # schema, then the demo ward with staff, shifts and plans (only into an empty database)
+    command: ["sh", "-c", "pnpm exec prisma migrate deploy && pnpm exec tsx prisma/seed-if-empty.ts"]
+    depends_on: { db: { condition: service_healthy } }
+    restart: "no"
+
+  web:
+    build: { context: ., target: web }
+    ports: ["3000:3000"] # also reachable from phones in the same network: http://<this computer's IP>:3000
+    environment:
+      DATABASE_URL: *db-url
+      SESSION_SECRET: demo-only-0123456789abcdef0123456789abcdef
+    depends_on:
+      db: { condition: service_healthy }
+      migrate: { condition: service_completed_successfully }
+
+volumes:
+  demodata:

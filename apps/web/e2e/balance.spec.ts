@@ -132,12 +132,3 @@ test("rollover creates next year with the remaining days as carry-over", async (
   await page.getByRole("button", { name: "Durchführen" }).click();
   await expect(page.getByRole("row", { name: /Anna Becker/ }).getByRole("cell").nth(1)).toHaveText(new RegExp(`^${remainingNow}`));
 });
-
-test("mobile API returns the balance with the leave info", async ({ request }) => {
-  const r = await request.post("/api/mobile/login", { data: { email: "anna@demo.de", password: "demo1234" } });
-  const info = await (await request.get("/api/mobile/leave", { headers: { authorization: `Bearer ${(await r.json()).token}` } })).json();
-  const b = info.balances.find((x: any) => x.year === new Date().getUTCFullYear());
-  expect(b).toMatchObject({ configured: true, total: 30 });
-  expect(b.planned).toBeGreaterThan(0); // seeded Urlaub is counted as planned
-  expect(b.remaining).toBe(30 - b.taken - b.planned - b.approvedHeld - b.requested);
-});
