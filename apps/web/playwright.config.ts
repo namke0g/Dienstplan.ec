@@ -7,5 +7,5 @@ export default defineConfig({
   workers: 1,
   timeout: 60_000,
   use: { baseURL: "http://localhost:3100", launchOptions: existsSync(chromium) ? { executablePath: chromium } : {} },
-  webServer: { command: "pnpm exec next start -p 3100", url: "http://localhost:3100/login", reuseExistingServer: false, env: { SESSION_SECRET: "e2e-test-secret-e2e-test-secret-1234" }, timeout: 60_000 },
+  webServer: { command: "pnpm exec next start -p 3100", url: "http://localhost:3100/login", reuseExistingServer: false, env: { SESSION_SECRET: "e2e-test-secret-e2e-test-secret-1234", EXPO_PUSH_URL: "http://localhost:3199/push" }, timeout: 60_000 },
 });

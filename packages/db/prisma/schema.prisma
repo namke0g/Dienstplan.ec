@@ -59,6 +59,7 @@ model User {
   wardId       String
   ward         Ward     @relation(fields: [wardId], references: [id])
   active       Boolean  @default(true)
+  pushEnabled  Boolean  @default(true)
   shifts       Shift[]
   personal     PersonalEntry[]
   devices      DeviceToken[]
@@ -171,6 +172,9 @@ model Notification {
   body        String
   shortNotice Boolean   @default(false)
   createdAt   DateTime  @default(now())
+  /// set when a push attempt was made (success or not), so nothing is sent twice
+  pushAttemptedAt DateTime?
+  /// set when the push provider accepted the message for at least one device
   deliveredAt DateTime?
   readAt      DateTime?
 
