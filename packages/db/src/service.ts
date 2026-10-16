@@ -79,6 +79,14 @@ export async function submitPlan(planId: string, actorId: string) {
       });
     }
     await audit(tx, planId, actorId, "SUBMITTED", { version: next.version });
+    const plan = await tx.plan.findUniqueOrThrow({ where: { id: planId } });
+    const reviewers = await tx.user.findMany({ where: { wardId: plan.wardId, active: true, role: { in: ["PDL", "BETRIEBSRAT"] } } });
+    await tx.notification.createMany({
+      data: reviewers.map((r) => ({
+        userId: r.id, type: "REVIEW_REQUESTED", title: "Dienstplan zur Prüfung",
+        body: `Der Dienstplan ${plan.month.toISOString().slice(0, 7)} (Version ${next.version}) wartet auf deine Entscheidung.`,
+      })),
+    });
   });
 }
 
@@ -95,6 +103,18 @@ export async function reviewPlan(planId: string, actorId: string, decision: "APP
     });
     await tx.plan.update({ where: { id: planId }, data: { status: next.status } });
     await audit(tx, planId, actorId, decision === "APPROVED" ? "APPROVED" : "REJECTED", { role: who, comment });
+    const plan = await tx.plan.findUniqueOrThrow({ where: { id: planId } });
+    const planners = await tx.user.findMany({ where: { wardId: plan.wardId, active: true, role: "PLANNER" } });
+    const who2 = who === "PDL" ? "Die PDL" : "Der Betriebsrat";
+    await tx.notification.createMany({
+      data: planners.map((p) => ({
+        userId: p.id, type: "REVIEW_DECISION",
+        title: decision === "APPROVED" ? `${who2} hat genehmigt` : `${who2} hat abgelehnt`,
+        body: decision === "APPROVED"
+          ? (next.status === "APPROVED" ? "Beide Genehmigungen liegen vor – der Plan kann veröffentlicht werden." : "Die zweite Genehmigung steht noch aus.")
+          : `Änderung angefordert: ${comment?.trim()}`,
+      })),
+    });
   });
 }
 

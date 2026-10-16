@@ -3,7 +3,7 @@
 import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
-import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate } from "@dienstplan/db";
+import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, deliverPendingNotifications } from "@dienstplan/db";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 
 export async function loginAction(_: string | null, form: FormData): Promise<string | null> {
@@ -31,12 +31,14 @@ export async function setShiftAction(planId: string, userId: string, date: strin
 export async function submitAction(planId: string) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await submitPlan(planId, me.id);
+  await deliverPendingNotifications();
   revalidatePath("/planer");
 }
 
 export async function publishAction(planId: string) {
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await publishPlan(planId, me.id);
+  await deliverPendingNotifications();
   revalidatePath("/planer");
   revalidatePath("/mein-plan");
 }
@@ -46,6 +48,7 @@ export async function reviewAction(planId: string, decision: "APPROVED" | "REJEC
   const comment = String(form.get("comment") ?? "");
   if (decision === "REJECTED" && !comment.trim()) redirect("/pruefung?err=comment");
   await reviewPlan(planId, me.id, decision, comment);
+  await deliverPendingNotifications();
   revalidatePath("/pruefung");
   redirect("/pruefung");
 }
@@ -77,4 +80,10 @@ export async function regenerateCalendarAction() {
   const secret = randomBytes(24).toString("hex");
   await prisma.calendarToken.upsert({ where: { userId: me.id }, update: { secret }, create: { userId: me.id, secret } });
   revalidatePath("/kalender");
+}
+
+export async function setPushEnabledAction(enabled: boolean) {
+  const me = await requireUser();
+  await prisma.user.update({ where: { id: me.id }, data: { pushEnabled: enabled } });
+  revalidatePath("/benachrichtigungen");
 }
