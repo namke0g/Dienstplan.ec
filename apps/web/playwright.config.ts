@@ -5,6 +5,8 @@ const chromium = "/opt/pw-browsers/chromium";
 export default defineConfig({
   testDir: "e2e",
   workers: 1,
+  // in CI, failed tests become annotations with the error message (readable without downloading logs)
+  reporter: process.env.CI ? [["github"], ["list"]] : "list",
   timeout: 60_000,
   use: { baseURL: "http://localhost:3100", launchOptions: existsSync(chromium) ? { executablePath: chromium } : {} },
   // Runs the same standalone server the Docker image runs (production mode), so the e2e suite also covers the build artifact,
