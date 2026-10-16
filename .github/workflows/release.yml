@@ -1,11 +1,12 @@
-# Release: on a tag "v*" builds the Docker images, pushes them to GitHub Container Registry and publishes a GitHub
-# pre-release with the notes from CHANGELOG.md. On pull requests that touch the release inputs it only builds and starts
-# the demo stack once, so a broken release is noticed before tagging.
+# Release: the newest version heading in CHANGELOG.md ("## [0.1.0] - …") is the version. When main gets a version that
+# has no release yet, this builds the Docker images, pushes them to GitHub Container Registry and publishes a GitHub
+# pre-release with tag v<version> and the notes of that section. So releasing = adding a new section to CHANGELOG.md.
+# On pull requests that touch the release inputs it only builds and starts the demo stack once.
 name: Release
 
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
   pull_request:
     paths: [".github/workflows/release.yml", "Dockerfile", "docker-compose.demo.yml", "packages/db/prisma/**"]
 
@@ -18,8 +19,30 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  version:
+    name: Version from CHANGELOG.md
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: v
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          v=$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          test -n "$v" || { echo "::error::No version heading in CHANGELOG.md"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+          publish=false
+          if [ "$GITHUB_EVENT_NAME" = push ] && ! gh release view "v$v" >/dev/null 2>&1; then publish=true; fi
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+          echo "version $v, publish: $publish"
+
   images:
     name: Docker images
+    needs: [version]
+    if: github.event_name == 'pull_request' || needs.version.outputs.publish == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -41,21 +64,21 @@ jobs:
           done
           exit 1
       - name: Push to GitHub Container Registry
-        if: startsWith(github.ref, 'refs/tags/v')
+        if: needs.version.outputs.publish == 'true'
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           repo="ghcr.io/$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')"
-          v="${GITHUB_REF_NAME#v}"
+          v="${{ needs.version.outputs.version }}"
           for t in web migrate; do
             for tag in "$v" latest; do docker tag "dienstplan-$t" "$repo/$t:$tag" && docker push "$repo/$t:$tag"; done
           done
 
   publish:
     name: GitHub release
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [images]
+    if: needs.version.outputs.publish == 'true'
+    needs: [version, images]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -63,8 +86,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          v="${GITHUB_REF_NAME#v}"
+          v="${{ needs.version.outputs.version }}"
           # the section of this version: from its heading up to the next "## "
           awk -v v="$v" '$0 ~ "^## \\[?"v"\\]?" {on=1; next} /^## / && on {exit} on' CHANGELOG.md > notes.md
           test -s notes.md || { echo "::error::CHANGELOG.md has no section for $v"; exit 1; }
-          gh release create "$GITHUB_REF_NAME" --prerelease --title "Dienstplan $v (Testversion)" --notes-file notes.md
+          gh release create "v$v" --target "$GITHUB_SHA" --prerelease --title "Dienstplan $v (Testversion)" --notes-file notes.md
