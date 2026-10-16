@@ -109,9 +109,17 @@ export async function rolloverYear(actorId: string, year: number, expires: strin
     const done = new Set((await tx.leaveEntitlement.findMany({ where: { year: year + 1, userId: { in: ents.map((e) => e.userId) } } })).map((e) => e.userId));
     let created = 0;
     const free = await leaveFreeDays(me.wardId, year, tx);
+    const balances = new Map<string, MaybeBalance>();
+    for (const e of ents) if (!done.has(e.userId)) balances.set(e.userId, await getBalance(e.userId, year, today, tx, free));
+    // the carry-over is a snapshot: days of open requests would count as taken and not come back if a request is later rejected
+    const waiting = ents.filter((e) => { const b = balances.get(e.userId); return b?.configured && b.requested > 0; }).map((e) => e.userId);
+    if (waiting.length) {
+      const names = (await tx.user.findMany({ where: { id: { in: waiting } }, select: { name: true }, orderBy: { name: "asc" } })).map((u) => u.name);
+      throw new BalanceError(`Bitte zuerst die offenen Urlaubsanträge für ${year} entscheiden: ${names.join(", ")}.`);
+    }
     for (const e of ents) {
       if (done.has(e.userId)) continue;
-      const b = await getBalance(e.userId, year, today, tx, free);
+      const b = balances.get(e.userId)!;
       const carry = b.configured ? Math.max(0, b.remaining) : 0;
       await tx.leaveEntitlement.create({ data: { userId: e.userId, year: year + 1, entitlement: e.entitlement, carryOver: carry, carryOverExpires: carry > 0 && expires ? toDate(expires) : null } });
       created++;

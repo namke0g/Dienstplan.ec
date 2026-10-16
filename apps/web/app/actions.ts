@@ -11,18 +11,19 @@ import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLe
   updateWardSettings, addWardHoliday, removeWardHoliday, createSickReport, extendSickReport, endSickReport, SickError } from "@dienstplan/db";
 import { deliverSoon } from "@/lib/deliver";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
-import { clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess } from "@/lib/rateLimit";
+import { dummyHash } from "@/lib/dummyHash";
+import { beginLoginAttempt, clientIp, releaseAttempt, recordLoginSuccess } from "@/lib/rateLimit";
 
 export async function loginAction(_: string | null, form: FormData): Promise<string | null> {
   const email = String(form.get("email") ?? "").trim().toLowerCase();
   const password = String(form.get("password") ?? "");
   const ip = clientIp(await headers());
-  const wait = loginBlockedFor(ip, email);
+  const wait = beginLoginAttempt(ip, email);
   if (wait !== null) return `Zu viele Fehlversuche. Bitte versuche es in ${Math.ceil(wait / 60)} Minute(n) erneut.`;
   const user = await prisma.user.findUnique({ where: { email } });
   // compare against a dummy hash when the user is unknown to keep timing similar
-  const ok = await bcrypt.compare(password, user?.passwordHash ?? "$2a$10$invalidinvalidinvalidinvalidinvalidinvalidinvalidinvalidinv");
-  if (!user || !user.active || !ok) { recordLoginFailure(ip, email); return "E-Mail oder Passwort ist falsch."; }
+  const ok = await bcrypt.compare(password, user?.passwordHash ?? dummyHash());
+  if (!user || !user.active || !ok) return "E-Mail oder Passwort ist falsch.";
   recordLoginSuccess(ip, email);
   await createSession(user.id);
   redirect(homeFor(user.role));
@@ -212,12 +213,12 @@ export async function changePasswordAction(_: string | null, form: FormData): Pr
   const next = String(form.get("next") ?? "");
   if (next !== String(form.get("repeat") ?? "")) return "Die beiden neuen Passwörter stimmen nicht überein.";
   const ip = clientIp(await headers());
-  const wait = loginBlockedFor(ip, me.email);
+  const wait = beginLoginAttempt(ip, me.email);
   if (wait !== null) return `Zu viele Fehlversuche. Bitte versuche es in ${Math.ceil(wait / 60)} Minute(n) erneut.`;
   try {
     await changePassword(me.id, current, next);
   } catch (e) {
-    if (e instanceof AdminError) { if (/aktuelle Passwort/.test(e.message)) recordLoginFailure(ip, me.email); return e.message; }
+    if (e instanceof AdminError) { if (!/aktuelle Passwort/.test(e.message)) releaseAttempt(ip, me.email); return e.message; }
     throw e;
   }
   recordLoginSuccess(ip, me.email);

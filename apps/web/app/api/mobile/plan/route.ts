@@ -22,7 +22,8 @@ export async function GET(req: Request) {
     publishedAt: plan?.publishedAt ?? null,
     version: plan?.publishedVersion ?? null,
     pendingChange: !!plan && published && plan.version !== plan.publishedVersion,
-    types: [...types.filter((t) => see || t.kind !== "SICK"), ...(see ? [] : [ABSENT_TYPE])].map((t) => ({
+    // all types: the viewer's own sick days keep their real type (only others' are masked as "Abwesend"); type names reveal nothing
+    types: [...types, ...(see ? [] : [ABSENT_TYPE])].map((t) => ({
       id: t.id, code: t.code, name: t.name, color: t.color, kind: t.kind, paid: t.paid,
       startMin: "startMin" in t ? t.startMin : 0, endMin: "endMin" in t ? t.endMin : 0,
     })),

@@ -1,7 +1,8 @@
 import bcrypt from "bcryptjs";
 import { randomBytes } from "node:crypto";
 import type { Prisma, Role, User } from "@prisma/client";
-import { AdminError, checkPassword, generatePassword, normEmail } from "./admin";
+import { localToday } from "@dienstplan/core";
+import { AdminError, checkPassword, generatePassword, invalidatedAt, normEmail } from "./admin";
 import { prisma } from "./client";
 import { actor, ForbiddenError, type Tx } from "./service";
 import { endBrowserPush } from "./push";
@@ -58,7 +59,7 @@ export async function createManagedUser(actorId: string, input: NewUser) {
     await tx.calendarToken.create({ data: { userId: user.id, secret: randomBytes(24).toString("hex") } });
     if (input.role === "EMPLOYEE" && input.entitlementDays != null) {
       if (!(input.entitlementDays >= 0 && input.entitlementDays <= 366 && Math.round(input.entitlementDays * 2) === input.entitlementDays * 2)) throw new AdminError("Der Urlaubsanspruch muss zwischen 0 und 366 Tagen liegen (halbe Tage erlaubt).");
-      await tx.leaveEntitlement.create({ data: { userId: user.id, year: new Date().getUTCFullYear(), entitlement: input.entitlementDays } });
+      await tx.leaveEntitlement.create({ data: { userId: user.id, year: Number(localToday().slice(0, 4)), entitlement: input.entitlementDays } });
     }
     await log(tx, actorId, user.id, "CREATED", { role: user.role });
     return { user, password: input.password ? null : password };
@@ -83,7 +84,7 @@ export async function updateManagedUser(actorId: string, userId: string, input: 
     await tx.user.update({
       where: { id: t.id },
       // a changed role or e-mail ends existing sessions, so permissions take effect immediately
-      data: { name, email, role, ...(changed.role || changed.email ? { sessionsValidAfter: new Date() } : {}) },
+      data: { name, email, role, ...(changed.role || changed.email ? { sessionsValidAfter: invalidatedAt(t.sessionsValidAfter) } : {}) },
     });
     if (changed.role || changed.email) await endBrowserPush(t.id, tx);
     await log(tx, actorId, t.id, "UPDATED", { changed, from: { role: t.role, email: t.email }, to: { role, email } });
@@ -101,7 +102,7 @@ export async function setManagedActive(actorId: string, userId: string, active: 
       await tx.deviceToken.deleteMany({ where: { userId: t.id } });
       const leave = await tx.leaveRequest.updateMany({ where: { userId: t.id, status: "PENDING" }, data: { status: "CANCELLED" } });
       const swaps = await tx.swapRequest.updateMany({ where: { OR: [{ requesterId: t.id }, { partnerId: t.id }], status: { in: ["OPEN", "PENDING_PARTNER", "PENDING_PLANNER"] } }, data: { status: "CANCELLED" } });
-      await tx.user.update({ where: { id: t.id }, data: { active: false, sessionsValidAfter: new Date() } });
+      await tx.user.update({ where: { id: t.id }, data: { active: false, sessionsValidAfter: invalidatedAt(t.sessionsValidAfter) } });
       await log(tx, actorId, t.id, "DEACTIVATED", { cancelledLeave: leave.count, cancelledSwaps: swaps.count });
     } else {
       await tx.user.update({ where: { id: t.id }, data: { active: true } });
@@ -118,7 +119,7 @@ export async function resetManagedPassword(actorId: string, userId: string, pass
     const me = await manager(tx, actorId);
     const t = await target(tx, me, userId);
     if (t.id === me.id) throw new AdminError("Dein eigenes Passwort änderst du unter „Mein Konto“.");
-    await tx.user.update({ where: { id: t.id }, data: { passwordHash: hash, sessionsValidAfter: new Date() } });
+    await tx.user.update({ where: { id: t.id }, data: { passwordHash: hash, sessionsValidAfter: invalidatedAt(t.sessionsValidAfter) } });
     await endBrowserPush(t.id, tx);
     await log(tx, actorId, t.id, "PASSWORD_RESET");
     return { password: password ? null : pw };
@@ -151,7 +152,7 @@ export async function anonymizeUser(actorId: string, userId: string) {
       where: { id: t.id },
       data: {
         name: `Ehemalige Person ${n}`, email: `anonymisiert-${t.id}@invalid.local`, passwordHash: await bcrypt.hash(randomBytes(32).toString("hex"), 10),
-        active: false, pushEnabled: false, anonymizedAt: new Date(), sessionsValidAfter: new Date(),
+        active: false, pushEnabled: false, anonymizedAt: new Date(), sessionsValidAfter: invalidatedAt(t.sessionsValidAfter),
       },
     });
     await log(tx, actorId, t.id, "ANONYMIZED");

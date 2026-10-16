@@ -12,7 +12,7 @@ export interface IcsShift {
   sequence?: number;
 }
 
-const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
+const esc = (s: string) => s.replace(/\\/g, "\\\\").replace(/;/g, "\\;").replace(/,/g, "\\,").replace(/\n/g, "\\n");
 
 function fold(line: string): string {
   const bytes = new TextEncoder();

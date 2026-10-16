@@ -31,7 +31,7 @@ export default function Team() {
           <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
             {data.types.map((x) => (
               <View key={x.id} style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-                <View style={{ backgroundColor: x.color, borderRadius: 4, paddingHorizontal: 5, minWidth: 20, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 11 }}>{x.code}</Text></View>
+                <View style={{ backgroundColor: x.color, borderWidth: 1, borderColor: t.chipEdge, borderRadius: 4, paddingHorizontal: 5, minWidth: 20, alignItems: "center" }}><Text style={{ color: "#fff", fontWeight: "700", fontSize: 11 }}>{x.code}</Text></View>
                 <Text style={{ color: t.sub, fontSize: 12 }}>{x.name}</Text>
               </View>
             ))}
@@ -55,7 +55,7 @@ export default function Team() {
                       const x = at.get(`${p.id}|${d}`);
                       return (
                         <View key={d} style={{ width: CELL, height: CELL, padding: 2 }} accessible accessibilityLabel={`${p.name}, ${d}: ${x?.name ?? "frei"}`}>
-                          {x && <View style={{ flex: 1, borderRadius: 6, backgroundColor: x.color, alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{x.code}</Text></View>}
+                          {x && <View style={{ flex: 1, borderRadius: 6, backgroundColor: x.color, borderWidth: 1, borderColor: t.chipEdge, alignItems: "center", justifyContent: "center" }}><Text style={{ color: "#fff", fontSize: 11, fontWeight: "700" }}>{x.code}</Text></View>}
                         </View>
                       );
                     })}

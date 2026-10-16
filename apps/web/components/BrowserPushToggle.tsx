@@ -5,17 +5,17 @@ import { base64UrlToBytes, currentSubscription, pushSupported, registerHere, syn
 type State = "checking" | "unsupported" | "off" | "on" | "denied" | "busy" | "failed";
 
 /** Turns browser notifications on or off for this browser. iPhone/iPad: only works after "Zum Home-Bildschirm". */
-export function BrowserPushToggle({ publicKey }: { publicKey: string }) {
+export function BrowserPushToggle({ publicKey, userId }: { publicKey: string; userId: string }) {
   const [state, setState] = useState<State>("checking");
   useEffect(() => {
     if (!pushSupported()) return setState("unsupported");
     if (Notification.permission === "denied") return setState("denied");
     // "on" only if this browser's subscription is valid and registered for the person signed in now
     navigator.serviceWorker.register("/sw.js", { scope: "/" })
-      .then(() => syncOnce(publicKey))
+      .then(() => syncOnce(publicKey, false, userId))
       .then((on) => setState(on ? "on" : "off"))
       .catch(() => setState("unsupported"));
-  }, [publicKey]);
+  }, [publicKey, userId]);
 
   async function enable() {
     setState("busy");

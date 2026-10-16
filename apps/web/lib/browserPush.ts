@@ -48,10 +48,14 @@ export async function unsubscribeHere(maxMs = 3000) {
  */
 let pending: { key: string; result: Promise<boolean> } | null = null;
 
-/** syncHere, shared by everything on the page that needs it (one request per page load); `fresh` forces a new sync. */
-export function syncOnce(publicKey: string, fresh = false): Promise<boolean> {
-  if (!fresh && pending?.key === publicKey) return pending.result;
-  pending = { key: publicKey, result: syncHere(publicKey).catch(() => false) };
+/**
+ * syncHere, shared by everything on the page that needs it (one request per page load and person); `fresh` forces a new sync.
+ * `who` is the signed-in person: logins switch users without a full page load, and one person's result must not be reused for the next.
+ */
+export function syncOnce(publicKey: string, fresh = false, who = ""): Promise<boolean> {
+  const key = `${publicKey}|${who}`;
+  if (!fresh && pending?.key === key) return pending.result;
+  pending = { key, result: syncHere(publicKey).catch(() => false) };
   return pending.result;
 }
 

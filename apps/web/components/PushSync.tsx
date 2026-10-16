@@ -8,10 +8,10 @@ import { pushSupported, syncOnce } from "@/lib/browserPush";
  * server ended someone's subscriptions (password change, etc.). Renders nothing. `fresh` re-syncs even if this page load
  * already did (used right after the person changed their own password, which ends their browser subscriptions).
  */
-export function PushSync({ publicKey, fresh = false }: { publicKey: string; fresh?: boolean }) {
+export function PushSync({ publicKey, userId, fresh = false }: { publicKey: string; userId: string; fresh?: boolean }) {
   useEffect(() => {
     if (!publicKey || !pushSupported()) return;
-    void syncOnce(publicKey, fresh);
-  }, [publicKey, fresh]);
+    void syncOnce(publicKey, fresh, userId);
+  }, [publicKey, fresh, userId]);
   return null;
 }

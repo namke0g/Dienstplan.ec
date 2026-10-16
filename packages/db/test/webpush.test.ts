@@ -158,7 +158,7 @@ describe("review fixes", () => {
     await prisma.deviceToken.create({ data: { userId: u.id, platform: "IOS", token: "ExponentPushToken[pia]" } });
     await changePassword(u.id, "pia-passwort-123", "pia-passwort-456");
     expect(await count()).toBe(0);
-    expect(await prisma.deviceToken.count({ where: { userId: u.id, platform: "IOS" } })).toBe(1); // the phone app has its own token handling
+    expect(await prisma.deviceToken.count({ where: { userId: u.id, platform: "IOS" } })).toBe(0); // phones too: a lost phone must stop getting pushes
     await registerWebPush(u.id, sub("pia-2"));
     await resetManagedPassword(await adminId(), u.id);
     expect(await count()).toBe(0);

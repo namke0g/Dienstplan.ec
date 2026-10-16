@@ -76,7 +76,7 @@ export async function resetPassword(emailIn: string, password?: string) {
   await prisma.$transaction(async (tx) => {
     const u = await tx.user.findUnique({ where: { email } });
     if (!u) throw new AdminError(`Kein Konto für ${email}.`);
-    await tx.user.update({ where: { id: u.id }, data: { passwordHash: hash, active: true, sessionsValidAfter: new Date() } });
+    await tx.user.update({ where: { id: u.id }, data: { passwordHash: hash, active: true, sessionsValidAfter: invalidatedAt(u.sessionsValidAfter) } });
     await endBrowserPush(u.id, tx);
   });
   return { password: password ? null : pw };
@@ -97,7 +97,7 @@ export async function changePassword(userId: string, current: string, next: stri
   if (next === current) throw new AdminError("Das neue Passwort muss sich vom aktuellen unterscheiden.");
   const hash = await bcrypt.hash(next, 12);
   await prisma.$transaction(async (tx) => {
-    await tx.user.update({ where: { id: userId }, data: { passwordHash: hash, sessionsValidAfter: new Date() } });
+    await tx.user.update({ where: { id: userId }, data: { passwordHash: hash, sessionsValidAfter: invalidatedAt(user.sessionsValidAfter) } });
     await endBrowserPush(userId, tx); // other sessions ended; this browser re-registers right after (see Konto page)
   });
 }
@@ -110,6 +110,13 @@ export const sessionCutoff = (validAfter: Date) => Math.floor(validAfter.getTime
 
 /** True if a token issued at `iat` (seconds) is still valid for this user. */
 export const sessionStillValid = (validAfter: Date | null, iat: number | undefined) => !validAfter || (iat !== undefined && iat >= sessionCutoff(validAfter));
+
+/**
+ * The new `sessionsValidAfter` when sessions are ended. Normally now; but if the previous cutoff lies in the future (a token was issued
+ * with iat = that cutoff, within the same second as the last change), move past it, so such a token is ended too.
+ */
+export const invalidatedAt = (prev: Date | null, now = new Date()) =>
+  prev && sessionCutoff(prev) > Math.floor(now.getTime() / 1000) ? new Date(sessionCutoff(prev) * 1000) : now;
 
 /** The `iat` to put into a new token: now, but never before the user's cutoff (otherwise a login right after a change would be rejected). */
 export const tokenIssuedAt = (validAfter: Date | null, nowMs = Date.now()) => Math.max(Math.floor(nowMs / 1000), validAfter ? sessionCutoff(validAfter) : 0);

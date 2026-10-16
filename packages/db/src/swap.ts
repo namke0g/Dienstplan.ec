@@ -1,4 +1,4 @@
-import { newViolations, swapChanges, SwapConflict, type Assignment, type CellChange, type SwapSpec, type Violation, localToday } from "@dienstplan/core";
+import { newViolations, swapChanges, SwapConflict, type Assignment, type CellChange, type SwapSpec, type Violation, localToday, addDaysYmd } from "@dienstplan/core";
 import type { Prisma, SwapStatus } from "@prisma/client";
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
@@ -109,15 +109,19 @@ export async function createSwap(requesterId: string, input: { date: string; par
       },
     });
     if (partnerId) {
-      await notify(tx, [{ userId: partnerId, type: "SWAP_PROPOSED", title: "Tauschanfrage", body: `${me.name} möchte ${partnerDate ? `den ${type.name} am ${dmy(input.date)} gegen deinen Dienst am ${dmy(partnerDate)} tauschen` : `den ${type.name} am ${dmy(input.date)} an dich abgeben`}.`, shortNotice: input.date <= new Date(Date.parse(`${today}T00:00:00Z`) + 86_400_000).toISOString().slice(0, 10) }]);
+      await notify(tx, [{ userId: partnerId, type: "SWAP_PROPOSED", title: "Tauschanfrage", body: `${me.name} möchte ${partnerDate ? `den ${type.name} am ${dmy(input.date)} gegen deinen Dienst am ${dmy(partnerDate)} tauschen` : `den ${type.name} am ${dmy(input.date)} an dich abgeben`}.`, shortNotice: input.date <= addDaysYmd(today, 1) }]);
     }
     return req;
   });
 }
 
 /** Colleague accepts (named partner) or takes (open offer). Moves the request to the planner. */
+/** Row lock on a swap request: accepting and deciding run one at a time, so the status check below sees the latest state. */
+const lockSwap = (tx: Tx, id: string) => tx.$queryRaw`SELECT id FROM "SwapRequest" WHERE id = ${id} FOR UPDATE`;
+
 export async function acceptSwap(id: string, userId: string) {
   return prisma.$transaction(async (tx) => {
+    await lockSwap(tx, id);
     const req = await tx.swapRequest.findUniqueOrThrow({ where: { id }, include: { requester: true, shiftType: true } });
     const me = await tx.user.findUniqueOrThrow({ where: { id: userId } });
     if (me.wardId !== req.wardId || me.role !== "EMPLOYEE" || userId === req.requesterId) throw new ForbiddenError("Nicht möglich");
@@ -165,6 +169,7 @@ async function writeCells(tx: Tx, wardId: string, changes: CellChange[], actorId
 export async function decideSwap(id: string, actorId: string, decision: "APPROVED" | "REJECTED", comment?: string) {
   return prisma.$transaction(async (tx) => {
     const me = await actor(tx, actorId, ["PLANNER", "ADMIN"]);
+    await lockSwap(tx, id);
     const req = await tx.swapRequest.findUniqueOrThrow({ where: { id }, include: { requester: true, partner: true, shiftType: true } });
     if (req.wardId !== me.wardId) throw new ForbiddenError("Andere Station");
     if (req.status !== "PENDING_PLANNER" || !req.partnerId) throw new SwapError("Die Anfrage wartet nicht auf eine Entscheidung.");
@@ -177,7 +182,7 @@ export async function decideSwap(id: string, actorId: string, decision: "APPROVE
       const { changes, problems } = await check(tx, req.wardId, specOf(req));
       if (problems.length) throw new SwapError(`Der Tausch würde Regeln verletzen: ${problems.join("; ")}`);
       await writeCells(tx, req.wardId, changes, actorId, id);
-      const short = toYmd(req.date) <= new Date(Date.now() + 72 * 3_600_000).toISOString().slice(0, 10);
+      const short = toYmd(req.date) <= addDaysYmd(todayYmd(), 3); // the ward's local date, like publishing and sick reports
       await notify(tx, both.map((u) => ({ userId: u, type: "SWAP_APPLIED", title: "Tausch durchgeführt", body: `${what} – dein Dienstplan wurde angepasst.`, shortNotice: short })));
     } else {
       await notify(tx, both.map((u) => ({ userId: u, type: "SWAP_REJECTED", title: "Tausch nicht genehmigt", body: `${what}: ${comment!.trim()}` })));
@@ -216,6 +221,8 @@ export async function swapsForPlanner(plannerId: string) {
 /** Preview for the creation form: would this proposal break any rule? */
 export async function previewSwap(requesterId: string, input: { date: string; partnerId: string; partnerDate?: string | null }) {
   const me = await prisma.user.findUniqueOrThrow({ where: { id: requesterId } });
+  const partner = await prisma.user.findUnique({ where: { id: input.partnerId }, select: { wardId: true } });
+  if (partner?.wardId !== me.wardId) throw new ForbiddenError("Andere Station");
   return prisma.$transaction(async (tx) => {
     const { roster } = await publishedRoster(tx, me.wardId, [input.date]);
     const mine = roster.find((a) => a.userId === requesterId && a.date === input.date);
@@ -229,7 +236,9 @@ export async function previewSwap(requesterId: string, input: { date: string; pa
 
 /** Can this person take the open offer without breaking a rule? (shown on the board) */
 export async function canTake(id: string, userId: string): Promise<string[]> {
-  const req = await prisma.swapRequest.findUniqueOrThrow({ where: { id } });
+  const [req, me] = await Promise.all([prisma.swapRequest.findUniqueOrThrow({ where: { id } }), prisma.user.findUniqueOrThrow({ where: { id: userId } })]);
+  if (req.wardId !== me.wardId) throw new ForbiddenError("Nicht möglich");
+  if (req.status !== "OPEN") return ["Dieses Angebot ist nicht mehr offen."]; // taken or withdrawn meanwhile: the board still renders
   try { return (await prisma.$transaction((tx) => check(tx, req.wardId, specOf(req, userId)))).problems; } catch (e) { if (e instanceof SwapError) return [e.message]; throw e; }
 }
 

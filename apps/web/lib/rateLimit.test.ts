@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { LIMITS, clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess, resetRateLimits } from "./rateLimit.ts";
+import { LIMITS, beginLoginAttempt, clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess, releaseAttempt, resetRateLimits } from "./rateLimit.ts";
 
 const T0 = 1_000_000;
 
@@ -32,6 +32,26 @@ test("success clears the account counter", () => {
   recordLoginSuccess("1.1.1.1", "a@x.de");
   recordLoginFailure("1.1.1.1", "a@x.de", T0 + 1);
   assert.equal(loginBlockedFor("1.1.1.1", "a@x.de", T0 + 2), null);
+});
+
+test("parallel attempts are counted before the password check: a burst gets no more than the limit", () => {
+  resetRateLimits();
+  const allowed = Array.from({ length: 50 }, () => beginLoginAttempt("1.1.1.1", "a@x.de", T0)).filter((w) => w === null).length;
+  assert.equal(allowed, LIMITS.perPair);
+});
+
+test("guessing one account from many addresses is limited too", () => {
+  resetRateLimits();
+  for (let i = 0; i < LIMITS.perAccount; i++) assert.equal(beginLoginAttempt(`10.0.0.${i}`, "a@x.de", T0), null);
+  assert.ok(beginLoginAttempt("10.0.1.1", "a@x.de", T0 + 1));
+});
+
+test("a correct password or a non-password error takes the counted attempt back", () => {
+  resetRateLimits();
+  for (let i = 0; i < LIMITS.perPair; i++) { beginLoginAttempt("1.1.1.1", "a@x.de", T0); releaseAttempt("1.1.1.1", "a@x.de"); }
+  assert.equal(loginBlockedFor("1.1.1.1", "a@x.de", T0 + 1), null);
+  beginLoginAttempt("1.1.1.1", "a@x.de", T0); recordLoginSuccess("1.1.1.1", "a@x.de");
+  assert.equal(loginBlockedFor("1.1.1.1", "a@x.de", T0 + 1), null);
 });
 
 test("client IP header is only trusted behind the proxy", () => {

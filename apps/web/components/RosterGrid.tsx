@@ -71,7 +71,7 @@ export function RosterGrid({ planId, editable, days, staff, types, shifts: initi
                     <button type="button" disabled={!editable} onClick={(e) => { e.stopPropagation(); setOpen(open === `${u.id}|${d}` ? null : `${u.id}|${d}`); }}
                       aria-label={`${u.name}, ${d}: ${t?.name ?? "frei"}${wished ? ` (${wished}${missed ? ", nicht erfüllt" : ""})` : ""}`} aria-haspopup="menu" aria-expanded={open === `${u.id}|${d}`}
                       title={wish ? `${wished}${wish.note ? `: ${wish.note}` : ""}` : undefined}
-                      className={`h-8 w-full rounded-md text-[11px] font-semibold ${editable ? "hover:ring-2 hover:ring-brand" : "cursor-default"} ${isBad ? "ring-2 ring-rose-500" : missed ? "ring-2 ring-amber-400" : wish && !t ? "border border-dashed border-amber-400" : ""}`}
+                      className={`h-8 w-full rounded-md text-[11px] font-semibold ${t ? "dark:outline dark:outline-1 dark:outline-white/25" : ""} ${editable ? "hover:ring-2 hover:ring-brand" : "cursor-default"} ${isBad ? "ring-2 ring-rose-500" : missed ? "ring-2 ring-amber-400" : wish && !t ? "border border-dashed border-amber-400" : ""}`}
                       style={t ? { background: t.color, color: "#fff" } : undefined}>
                       {t?.code ?? (wish ? <span className="text-amber-600">{wish.kind === "FREE" ? "♡" : `♡${byId.get(wish.shiftTypeId ?? "")?.code ?? ""}`}</span> : "")}
                     </button>
@@ -83,7 +83,7 @@ export function RosterGrid({ planId, editable, days, staff, types, shifts: initi
                             <div className="px-1 pt-1 text-[10px] font-semibold uppercase text-slate-400">{label as string}</div>
                             {(list as GridType[]).map((o) => (
                               <button key={o.id} role="menuitem" type="button" onClick={() => pick(u.id, d, o.id)} className="flex w-full items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-slate-100 dark:hover:bg-slate-800">
-                                <span className="grid h-5 w-6 shrink-0 place-items-center rounded text-[10px] font-semibold text-white" style={{ background: o.color }}>{o.code}</span>
+                                <span className="grid h-5 w-6 shrink-0 place-items-center rounded text-[10px] font-semibold text-white dark:outline dark:outline-1 dark:outline-white/25" style={{ background: o.color }}>{o.code}</span>
                                 <span className="truncate">{o.name}</span>
                                 {o.kind !== "WORK" && <span className="ml-auto text-[10px] text-slate-400">{o.paid ? "bezahlt" : "unbezahlt"}</span>}
                               </button>
@@ -110,7 +110,7 @@ export function Legend({ types }: { types: GridType[] }) {
     <div className="flex flex-wrap gap-3 text-xs text-slate-600 dark:text-slate-300">
       {types.map((t) => (
         <span key={t.id} className="inline-flex items-center gap-1.5">
-          <span className="inline-grid h-5 min-w-5 place-items-center rounded px-1 font-semibold text-white" style={{ background: t.color }}>{t.code}</span>{t.name}{t.kind !== "WORK" && <span className="text-slate-400">({t.paid ? "bezahlt" : "unbezahlt"})</span>}
+          <span className="inline-grid h-5 min-w-5 place-items-center rounded px-1 font-semibold text-white dark:outline dark:outline-1 dark:outline-white/25" style={{ background: t.color }}>{t.code}</span>{t.name}{t.kind !== "WORK" && t.code !== "–" && <span className="text-slate-400">({t.paid ? "bezahlt" : "unbezahlt"})</span>}
         </span>
       ))}
     </div>
