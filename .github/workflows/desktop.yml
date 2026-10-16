@@ -54,18 +54,21 @@ jobs:
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
         run: npm run dist
-      - name: Start the unpacked app once (database, demo data, web server, login)
-        working-directory: desktop
-        shell: pwsh
-        run: |
-          $log = Join-Path $env:RUNNER_TEMP "smoke.log"
-          $env:SMOKE_LOG = $log
-          $p = Start-Process -FilePath "dist\win-unpacked\Dienstplan.exe" -ArgumentList "--smoke" -Wait -PassThru
-          if (Test-Path $log) { Get-Content $log }
-          if ($p.ExitCode -ne 0) { throw "Smoke test failed with exit code $($p.ExitCode)" }
       - uses: actions/upload-artifact@v4
         with:
           name: Dienstplan-Setup
           path: desktop/dist/Dienstplan-Setup-*.exe
           if-no-files-found: error
           retention-days: 30
+      - name: Start the unpacked app once (database, demo data, web server, login)
+        timeout-minutes: 6
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "smoke.log"
+          $env:SMOKE_LOG = $log
+          $p = Start-Process -FilePath "dist\win-unpacked\Dienstplan.exe" -ArgumentList "--smoke" -PassThru
+          if (-not $p.WaitForExit(240000)) { Stop-Process -Id $p.Id -Force; Write-Host "Timed out after 240 s" }
+          if (Test-Path $log) { Get-Content $log }
+          Get-Process postgres -ErrorAction SilentlyContinue | Stop-Process -Force
+          if ($p.ExitCode -ne 0) { throw "Smoke test failed with exit code $($p.ExitCode)" }

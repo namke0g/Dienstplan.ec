@@ -90,6 +90,8 @@ async function smokeCheck(url) {
 }
 
 async function run() {
+  if (smoke) setTimeout(() => { log("FEHLER: Zeitüberschreitung beim Smoke-Test (180 s)"); app.exit(2); }, 180_000).unref();
+  log(`Start (${process.platform}, Electron ${process.versions.electron}), Daten: ${dataDir}`);
   createWindow();
   try {
     backend = await start({ dataDir, appDir, migrationsDir, log });
