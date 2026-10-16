@@ -1,6 +1,6 @@
-import { prisma, leaveContext, toYmd } from "@dienstplan/db";
+import { prisma, leaveContext, swapsForPlanner, toYmd } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { decideLeaveAction } from "@/app/actions";
+import { decideLeaveAction, decideSwapAction } from "@/app/actions";
 
 const dmy = (d: string) => d.split("-").reverse().join(".");
 const range = (s: string, e: string) => (s === e ? dmy(s) : `${dmy(s)} – ${dmy(e)}`);
@@ -14,12 +14,33 @@ export default async function AntraegePage({ searchParams }: { searchParams: Pro
     prisma.leaveRequest.findMany({ where: { ...where, status: { in: ["APPROVED", "REJECTED"] } }, orderBy: { decidedAt: "desc" }, take: 15, include: { user: { select: { name: true } }, shiftType: true, decidedBy: { select: { name: true } } } }),
   ]);
   const ctx = await Promise.all(pending.map((r) => leaveContext(r.id)));
+  const swaps = me.role === "PDL" ? [] : await swapsForPlanner(me.id);
 
   return (
     <>
       <h1 className="text-lg font-semibold">Anträge auf Abwesenheit</h1>
       {err && <p role="alert" className="card border-rose-300 text-sm text-rose-700">{err}</p>}
-      {pending.length === 0 && <p className="card text-sm text-slate-500">Keine offenen Anträge.</p>}
+      {swaps.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="font-semibold">Diensttausch zur Freigabe</h2>
+          {swaps.map((r) => (
+            <form key={r.id} className="card space-y-3" aria-label={`Tausch ${r.requester.name}`}>
+              <div className="text-sm"><b>{r.requester.name}</b> ↔ <b>{r.partner?.name}</b>
+                <div className="text-slate-500">{r.shiftType.name} am {dmy(toYmd(r.date))}{r.partnerDate ? <> gegen {r.partnerShiftType?.name} am {dmy(toYmd(r.partnerDate))}</> : " (Abgabe ohne Gegendienst)"}</div>
+                {r.note && <div>„{r.note}“</div>}</div>
+              {r.problems.length > 0 ? <p className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800">Aktuell nicht möglich: {r.problems.join("; ")}</p>
+                : <p className="text-xs text-emerald-700">✓ Ruhezeiten und Arbeitstage eingehalten. Der Tausch ändert den veröffentlichten Plan direkt, ohne neue Genehmigung durch PDL/Betriebsrat.</p>}
+              <label className="block text-sm font-medium">Kommentar <span className="font-normal text-slate-500">(bei Ablehnung Pflicht)</span><textarea name="comment" rows={2} className="input mt-1" /></label>
+              <div className="flex gap-2">
+                <button className="btn" disabled={r.problems.length > 0} formAction={decideSwapAction.bind(null, r.id, "APPROVED")}>Freigeben</button>
+                <button className="btn-ghost !border-rose-300 !text-rose-700" formAction={decideSwapAction.bind(null, r.id, "REJECTED")}>Ablehnen</button>
+              </div>
+            </form>
+          ))}
+        </section>
+      )}
+      {pending.length === 0 && swaps.length === 0 && <p className="card text-sm text-slate-500">Keine offenen Anträge.</p>}
+      {pending.length > 0 && <h2 className="font-semibold">Abwesenheitsanträge</h2>}
       {pending.map((r, i) => {
         const c = ctx[i]!;
         return (
