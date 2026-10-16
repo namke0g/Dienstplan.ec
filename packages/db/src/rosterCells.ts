@@ -1,6 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { toDate, toYmd } from "./dates";
-import type { SnapshotShift, Tx } from "./service";
+import { lockPlan, type SnapshotShift, type Tx } from "./service";
 
 /** A cell's current value: the draft roster row and (only if the month is published) the published copy. */
 export interface CellNow { userId: string; date: string; draft: string | null; published?: string | null }
@@ -19,7 +19,9 @@ export async function writeRosterCells(tx: Tx, wardId: string, writes: CellWrite
   for (const w of writes) byMonth.set(w.date.slice(0, 7), [...(byMonth.get(w.date.slice(0, 7)) ?? []), w]);
 
   for (const [month, items] of byMonth) {
-    const plan = await tx.plan.upsert({ where: { wardId_month: { wardId, month: toDate(`${month}-01`) } }, update: {}, create: { wardId, month: toDate(`${month}-01`) } });
+    const { id: planId } = await tx.plan.upsert({ where: { wardId_month: { wardId, month: toDate(`${month}-01`) } }, update: {}, create: { wardId, month: toDate(`${month}-01`) }, select: { id: true } });
+    await lockPlan(tx, planId); // concurrent writers of the same month must not overwrite each other's published copy
+    const plan = await tx.plan.findUniqueOrThrow({ where: { id: planId } });
     const rows = new Map((await tx.shift.findMany({
       where: { planId: plan.id, OR: items.map((i) => ({ userId: i.userId, date: toDate(i.date) })) },
     })).map((r) => [`${r.userId}|${toYmd(r.date)}`, r]));

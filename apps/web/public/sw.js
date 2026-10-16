@@ -11,7 +11,7 @@ self.addEventListener("push", (event) => {
     body: d.body, icon: "/icon.svg", badge: "/icon.svg",
     // one entry per message: a later routine message must not replace an urgent one; a re-sent message replaces itself
     ...(d.id ? { tag: `dienstplan-${d.id}` } : {}),
-    requireInteraction: !!d.urgent, data: { url: typeof d.url === "string" && d.url.startsWith("/") ? d.url : "/" },
+    requireInteraction: !!d.urgent, data: { url: typeof d.url === "string" && d.url.startsWith("/") && !d.url.startsWith("//") && !d.url.startsWith("/\\") ? d.url : "/" },
   }));
 });
 

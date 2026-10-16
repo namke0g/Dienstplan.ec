@@ -45,7 +45,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
         <>
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="card"><div className="text-xs text-slate-500">Meine Dienste</div><div className="text-2xl font-semibold">{workMine.length}</div>{absSummary && <div className="mt-1 text-xs text-slate-500">{absSummary}</div>}</div>
-            <div className="card"><div className="text-xs text-slate-500">Geplante Stunden (brutto)</div><div className="text-2xl font-semibold">{hours.toFixed(1).replace(".0", "")} h</div></div>
+            <div className="card"><div className="text-xs text-slate-500">Geplante Stunden (brutto)</div><div className="text-2xl font-semibold">{hours.toFixed(1).replace(".0", "").replace(".", ",")} h</div></div>
             <div className="card"><div className="text-xs text-slate-500">Nächster Dienst</div>
               <div className="text-lg font-semibold">{(() => { const today = localToday(); const n = [...mine.keys()].sort().find((d) => d >= today && mine.get(d)!.kind === "WORK"); const t = n && mine.get(n); return n && t ? `${n.slice(8)}.${n.slice(5, 7)}. ${t.name}` : "–"; })()}</div></div>
           </div>
@@ -61,7 +61,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
                     <div className="w-10 text-center"><div className="text-xs text-slate-500">{WEEKDAYS[wd(d)]}</div><div className="font-semibold">{d.slice(8)}</div></div>
                     <div className="flex-1 space-y-1 text-sm">
                       {holidays[d] && <div className="text-xs font-medium text-rose-700 dark:text-rose-300">Feiertag: {holidays[d]}</div>}
-                      {t && <div className="inline-flex items-center gap-2 rounded-lg px-2 py-0.5 text-white" style={{ background: t.color }}>{t.name} <span className="opacity-80">{t.kind === "WORK" ? `${fmtTime(t.startMin)}–${fmtTime(t.endMin)}` : t.paid ? "bezahlt" : "unbezahlt"}</span></div>}
+                      {t && <div className="inline-flex items-center gap-2 rounded-lg px-2 py-0.5 text-white dark:outline dark:outline-1 dark:outline-white/25" style={{ background: t.color }}>{t.name} <span className="opacity-80">{t.kind === "WORK" ? `${fmtTime(t.startMin)}–${fmtTime(t.endMin)}` : t.paid ? "bezahlt" : "unbezahlt"}</span></div>}
                       {es.map((e) => (
                         <form key={e.id} action={deletePersonalAction.bind(null, e.id)} className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 px-2 py-0.5 text-violet-900 dark:bg-violet-950 dark:text-violet-100">
                           <span>📝 {e.title}{e.note ? ` – ${e.note}` : ""}</span><button className="text-xs underline" aria-label="Eintrag löschen">löschen</button>

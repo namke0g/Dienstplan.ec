@@ -109,15 +109,28 @@ test("rollover creates next year with the remaining days as carry-over", async (
   const remaining = (await cells.nth(5).innerText()).trim(); // "Rest" column, whatever the demo data currently yields
   expect(Number(remaining.replace(",", "."))).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Durchführen" }).click();
+  // open requests would be counted as taken in the carry-over: they are decided first
+  await expect(page.locator("p[role=alert]")).toContainText("offenen Urlaubsanträge");
+  await page.goto("/antraege");
+  const open = page.getByRole("form", { name: /^Antrag / });
+  for (let n = await open.count(); n > 0; n--) {
+    await open.first().getByLabel(/Kommentar/).fill("Jahreswechsel");
+    await open.first().getByRole("button", { name: "Ablehnen" }).click();
+    await expect(open).toHaveCount(n - 1); // wait for the page to show the decision before the next one
+  }
+  await page.goto(`/urlaubskonto?y=${y}`);
+  const remainingNow = (await page.getByRole("row", { name: /Anna Becker/ }).getByRole("cell").nth(5).innerText()).trim();
+  expect(Number(remainingNow.replace(",", "."))).toBeGreaterThanOrEqual(Number(remaining.replace(",", ".")));
+  await page.getByRole("button", { name: "Durchführen" }).click();
   await expect(page.getByRole("status")).toContainText("Jahreswechsel durchgeführt");
   await expect(page.getByRole("heading", { name: `Urlaubskonto ${y + 1}` })).toBeVisible();
   const next = page.getByRole("row", { name: /Anna Becker/ }).getByRole("cell");
   await expect(next.nth(0)).toHaveText("30"); // same entitlement
-  await expect(next.nth(1)).toHaveText(new RegExp(`^${remaining}( ⚠.*)?$`)); // remaining days became the carry-over (with the lapse warning)
+  await expect(next.nth(1)).toHaveText(new RegExp(`^${remainingNow}( ⚠.*)?$`)); // remaining days became the carry-over (with the lapse warning)
   // running it again changes nothing
   await page.goto(`/urlaubskonto?y=${y}`);
   await page.getByRole("button", { name: "Durchführen" }).click();
-  await expect(page.getByRole("row", { name: /Anna Becker/ }).getByRole("cell").nth(1)).toHaveText(new RegExp(`^${remaining}`));
+  await expect(page.getByRole("row", { name: /Anna Becker/ }).getByRole("cell").nth(1)).toHaveText(new RegExp(`^${remainingNow}`));
 });
 
 test("mobile API returns the balance with the leave info", async ({ request }) => {

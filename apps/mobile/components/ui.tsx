@@ -19,7 +19,8 @@ export function Banner({ text, tone = "warn" }: { text: string; tone?: "warn" | 
   return <View style={[s.banner, { backgroundColor: tone === "warn" ? t.warn : t.danger + "22" }]}><Text style={{ color: tone === "warn" ? t.warnText : t.danger }}>{text}</Text></View>;
 }
 export function Chip({ label, color }: { label: string; color: string }) {
-  return <View style={[s.chip, { backgroundColor: color }]}><Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>{label}</Text></View>;
+  const t = useTheme();
+  return <View style={[s.chip, { backgroundColor: color, borderWidth: 1, borderColor: t.chipEdge }]}><Text style={{ color: "#fff", fontWeight: "600", fontSize: 13 }}>{label}</Text></View>;
 }
 const s = StyleSheet.create({
   card: { borderWidth: 1, borderRadius: 16, padding: 14 },

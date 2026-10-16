@@ -21,6 +21,8 @@ async function notifyDeciders(tx: Tx, wardId: string, title: string, body: strin
 
 export async function createLeave(userId: string, input: { shiftTypeId: string; start: string; end: string; note?: string }, today = todayYmd()) {
   return prisma.$transaction(async (tx) => {
+    // overlap and balance checks hold under double taps / two devices
+    await tx.$queryRaw`SELECT 1 FROM (SELECT pg_advisory_xact_lock(hashtext(${`leave:${userId}`}))) AS l`;
     const user = await tx.user.findUniqueOrThrow({ where: { id: userId } });
     const type = await tx.shiftType.findFirst({ where: { id: input.shiftTypeId, wardId: user.wardId } });
     if (!type || !(REQUESTABLE as readonly string[]).includes(type.kind)) throw new LeaveError("Diese Abwesenheitsart kann nicht beantragt werden.");
@@ -151,6 +153,13 @@ async function applyMonth(tx: Tx, req: { id: string; userId: string; shiftTypeId
   const days = eachDay(toYmd(req.start), toYmd(req.end)).filter((x) => x.startsWith(month));
   // a reported sickness stays: leave does not overwrite sick days (the days count as sick, not as leave)
   const sick = new Set((await tx.shift.findMany({ where: { planId: plan.id, userId: req.userId, date: { in: days.map(toDate) }, shiftType: { kind: "SICK" } }, select: { date: true } })).map((r) => toYmd(r.date)));
+  if (sick.size) {
+    const reports = await tx.sickReport.findMany({ where: { userId: req.userId, start: { lte: req.end }, end: { gte: req.start } } });
+    for (const r of reports) {
+      const replaced = (r.replaced as unknown as { date: string; draft: string | null }[]).map((x) => (sick.has(x.date) ? { ...x, draft: req.shiftTypeId } : x));
+      await tx.sickReport.update({ where: { id: r.id }, data: { replaced: replaced as unknown as Prisma.InputJsonValue } });
+    }
+  }
   for (const d of days.filter((x) => !sick.has(x))) {
     const before = await applyShift(tx, plan.id, req.userId, actorId, d, req.shiftTypeId);
     if (before && before.shiftTypeId !== req.shiftTypeId) replaced++;
@@ -158,9 +167,13 @@ async function applyMonth(tx: Tx, req: { id: string; userId: string; shiftTypeId
   return replaced;
 }
 
+/** Row lock on a leave request: decisions on the same request run one at a time and see each other's result. */
+const lockLeave = (tx: Tx, id: string) => tx.$queryRaw`SELECT id FROM "LeaveRequest" WHERE id = ${id} FOR UPDATE`;
+
 export async function decideLeave(id: string, actorId: string, decision: "APPROVED" | "REJECTED", comment?: string) {
   return prisma.$transaction(async (tx) => {
     const me = await actor(tx, actorId, DECIDERS);
+    await lockLeave(tx, id);
     const req = await tx.leaveRequest.findUniqueOrThrow({ where: { id }, include: { user: true, shiftType: true } });
     if (req.user.wardId !== me.wardId) throw new ForbiddenError("Antrag gehört zu einer anderen Station");
     if (req.status !== "PENDING") throw new LeaveError("Der Antrag wurde bereits bearbeitet oder zurückgezogen.");
@@ -192,6 +205,7 @@ export async function decideLeave(id: string, actorId: string, decision: "APPROV
 export async function applyPendingLeave(id: string, month: string, actorId: string) {
   return prisma.$transaction(async (tx) => {
     const me = await actor(tx, actorId, ["PLANNER", "ADMIN"]);
+    await lockLeave(tx, id);
     const req = await tx.leaveRequest.findUniqueOrThrow({ where: { id }, include: { user: true } });
     if (req.user.wardId !== me.wardId) throw new ForbiddenError("Antrag gehört zu einer anderen Station");
     if (req.status !== "APPROVED" || !req.pendingMonths.includes(month)) throw new LeaveError("Für diesen Monat ist nichts zu übernehmen.");

@@ -14,7 +14,7 @@ export default async function Page() {
         <form action={markAllReadAction}><button className="btn-ghost">Alle als gelesen markieren</button></form>
       </div>
       <PushToggle initial={me.pushEnabled} />
-      {webPushConfigured() && <BrowserPushToggle publicKey={vapidConfig().publicKey} />}
+      {webPushConfigured() && <BrowserPushToggle publicKey={vapidConfig().publicKey} userId={me.id} />}
       {items.length === 0 && <p className="card text-sm text-slate-500">Noch keine Mitteilungen.</p>}
       <ul className="space-y-2">
         {items.map((n) => (

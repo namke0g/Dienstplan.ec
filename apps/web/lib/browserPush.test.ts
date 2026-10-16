@@ -64,6 +64,16 @@ test("one sync per page load is shared; 'fresh' forces another, e.g. after a pas
   assert.equal(requests.length, 2);
 });
 
+test("another person signing in on the same page re-syncs instead of reusing the first person's result", async () => {
+  install({ key });
+  const { syncOnce } = await mod();
+  await syncOnce(key, false, "anna");
+  await syncOnce(key, false, "anna");
+  assert.equal(requests.length, 1);
+  await syncOnce(key, false, "ben");
+  assert.equal(requests.length, 2);
+});
+
 test("unsubscribing never takes longer than its limit, and the browser stops receiving anyway (#10)", async () => {
   install({ key });
   fetchDelayMs = 10_000; // server hangs

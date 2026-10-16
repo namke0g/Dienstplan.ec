@@ -219,10 +219,11 @@ export async function unregisterWebPush(userId: string, endpoint: string) {
 }
 
 /**
- * Ends all browser subscriptions of a person. Called whenever their sessions are ended on the server (password change or
+ * Ends all push subscriptions of a person (browsers and phones). Called whenever their sessions are ended on the server (password change or
  * reset, role/e-mail change), so a shared PC whose session just ended stops showing their notifications. A browser that is
  * still signed in re-registers itself on the next page load.
  */
 export async function endBrowserPush(userId: string, tx: Pick<Prisma.TransactionClient, "deviceToken"> = prisma) {
-  return (await tx.deviceToken.deleteMany({ where: { userId, platform: "WEB" } })).count;
+  // all devices: a lost phone must stop getting full-text pushes once the password is changed or reset
+  return (await tx.deviceToken.deleteMany({ where: { userId } })).count;
 }

@@ -7,6 +7,8 @@ import {
   type Decision,
   type PlanState,
   type Reviewer,
+  addDaysYmd,
+  localToday,
 } from "@dienstplan/core";
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
@@ -18,7 +20,13 @@ export class ForbiddenError extends Error {}
 export const PLAN_ROLES: Role[] = ["PLANNER", "ADMIN"];
 export const SHORT_NOTICE_HOURS = 72;
 
+/** Row lock on the plan: every change to a plan's status, rows or published copy goes through it, one at a time. */
+export async function lockPlan(tx: Tx, planId: string) {
+  await tx.$queryRaw`SELECT id FROM "Plan" WHERE id = ${planId} FOR UPDATE`;
+}
+
 export async function loadState(tx: Tx, planId: string): Promise<{ state: PlanState; wardId: string }> {
+  await lockPlan(tx, planId);
   const plan = await tx.plan.findUniqueOrThrow({ where: { id: planId }, include: { approvals: true } });
   const decisions: Record<Reviewer, Decision> = { PDL: "PENDING", BETRIEBSRAT: "PENDING" };
   for (const a of plan.approvals) {
@@ -35,6 +43,13 @@ export async function actor(tx: Tx, userId: string, roles: Role[]) {
   const u = await tx.user.findUniqueOrThrow({ where: { id: userId } });
   if (!roles.includes(u.role)) throw new ForbiddenError(`Role ${u.role} may not do this`);
   return u;
+}
+
+/** The actor must belong to the plan's ward. */
+async function sameWard(tx: Tx, planId: string, u: { wardId: string }) {
+  const plan = await tx.plan.findUniqueOrThrow({ where: { id: planId }, select: { wardId: true, month: true } });
+  if (plan.wardId !== u.wardId) throw new ForbiddenError("Plan gehört zu einer anderen Station");
+  return plan;
 }
 
 export async function getOrCreatePlan(wardId: string, monthYmd: string) {
@@ -66,14 +81,21 @@ export async function applyShift(tx: Tx, planId: string, userId: string, actorId
 /** Assign (or clear, with shiftTypeId=null) one cell of the roster grid. */
 export async function setShift(planId: string, userId: string, actorId: string, dateYmd: string, shiftTypeId: string | null) {
   return prisma.$transaction(async (tx) => {
-    await actor(tx, actorId, PLAN_ROLES);
+    const me = await actor(tx, actorId, PLAN_ROLES);
+    const plan = await sameWard(tx, planId, me);
+    if (dateYmd.slice(0, 7) !== toYmd(plan.month).slice(0, 7)) throw new ForbiddenError("Der Tag liegt nicht im Monat dieses Plans");
+    const [who, type] = await Promise.all([
+      tx.user.findUnique({ where: { id: userId }, select: { wardId: true } }),
+      shiftTypeId ? tx.shiftType.findUnique({ where: { id: shiftTypeId }, select: { wardId: true } }) : null,
+    ]);
+    if (who?.wardId !== plan.wardId || (shiftTypeId && type?.wardId !== plan.wardId)) throw new ForbiddenError("Person oder Dienstart gehört zu einer anderen Station");
     await applyShift(tx, planId, userId, actorId, dateYmd, shiftTypeId);
   });
 }
 
 export async function submitPlan(planId: string, actorId: string) {
   return prisma.$transaction(async (tx) => {
-    await actor(tx, actorId, PLAN_ROLES);
+    await sameWard(tx, planId, await actor(tx, actorId, PLAN_ROLES));
     const { state } = await loadState(tx, planId);
     const next = coreSubmit(state);
     await tx.plan.update({ where: { id: planId }, data: { status: next.status } });
@@ -99,6 +121,7 @@ export async function submitPlan(planId: string, actorId: string) {
 export async function reviewPlan(planId: string, actorId: string, decision: "APPROVED" | "REJECTED", comment?: string) {
   return prisma.$transaction(async (tx) => {
     const u = await actor(tx, actorId, ["PDL", "BETRIEBSRAT"]);
+    await sameWard(tx, planId, u);
     const who = u.role as Reviewer;
     if (decision === "REJECTED" && !comment?.trim()) throw new Error("A rejection needs a comment");
     const { state } = await loadState(tx, planId);
@@ -126,15 +149,19 @@ export async function reviewPlan(planId: string, actorId: string, decision: "APP
 
 export async function publishPlan(planId: string, actorId: string, now = new Date()) {
   return prisma.$transaction(async (tx) => {
-    await actor(tx, actorId, PLAN_ROLES);
+    await sameWard(tx, planId, await actor(tx, actorId, PLAN_ROLES));
     const { state } = await loadState(tx, planId);
     const next = corePublish(state);
     const old = await tx.plan.findUniqueOrThrow({ where: { id: planId } });
     const prevSnap = (old.publishedSnapshot ?? []) as unknown as SnapshotShift[];
     const shifts = await tx.shift.findMany({ where: { planId }, include: { shiftType: true } });
-    const snapshot: SnapshotShift[] = shifts.map((s) => ({
-      id: s.id, userId: s.userId, date: toYmd(s.date), shiftTypeId: s.shiftTypeId, sequence: s.sequence,
-    }));
+    // calendar clients only take an update with a higher SEQUENCE: never go below what was published for that event
+    const prevById = new Map(prevSnap.map((p) => [p.id, p]));
+    const snapshot: SnapshotShift[] = shifts.map((s) => {
+      const p = prevById.get(s.id);
+      const sequence = !p ? s.sequence : p.shiftTypeId === s.shiftTypeId ? Math.max(s.sequence, p.sequence) : Math.max(s.sequence, p.sequence + 1);
+      return { id: s.id, userId: s.userId, date: toYmd(s.date), shiftTypeId: s.shiftTypeId, sequence };
+    });
     await tx.plan.update({
       where: { id: planId },
       data: { status: next.status, publishedAt: now, publishedVersion: state.version, publishedSnapshot: snapshot as unknown as Prisma.InputJsonValue },
@@ -144,11 +171,11 @@ export async function publishPlan(planId: string, actorId: string, now = new Dat
     const prevByKey = new Map(prevSnap.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]));
     const nowByKey = new Map(snapshot.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]));
     const affected = new Map<string, { shortNotice: boolean }>();
-    const horizon = now.getTime() + SHORT_NOTICE_HOURS * 3_600_000;
+    const today = localToday(now), last = addDaysYmd(today, SHORT_NOTICE_HOURS / 24);
     for (const k of new Set([...prevByKey.keys(), ...nowByKey.keys()])) {
       if (prevByKey.get(k) === nowByKey.get(k)) continue;
       const [uid, date] = k.split("|") as [string, string];
-      const short = Date.parse(`${date}T00:00:00Z`) <= horizon && Date.parse(`${date}T23:59:59Z`) >= now.getTime();
+      const short = date >= today && date <= last;
       const cur = affected.get(uid);
       affected.set(uid, { shortNotice: (cur?.shortNotice ?? false) || short });
     }

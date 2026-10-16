@@ -50,10 +50,16 @@ test("plan endpoint masks sick leave for colleagues", async ({ request }) => {
   const anna = await login(request, "anna@demo.de");
   const p = await (await request.get(`/api/mobile/plan?m=${ym}`, anna)).json();
   expect(p.published).toBe(true);
-  expect(p.types.some((t: any) => t.kind === "SICK")).toBe(false);
   const ben = p.staff.find((s: any) => s.name === "Ben Schmidt").id;
   const cell = p.shifts.find((s: any) => s.userId === ben && s.date === `${ym}-06`);
   expect(p.types.find((t: any) => t.id === cell.shiftTypeId).name).toBe("Abwesend");
+  expect(p.shifts.some((s: any) => s.userId !== p.staff.find((x: any) => x.name === "Anna Becker").id && p.types.find((t: any) => t.id === s.shiftTypeId)?.kind === "SICK")).toBe(false); // no colleague shows as sick
+
+  // the person themself sees their own sick day with its real type (the app's month view needs it to render)
+  const benApi = await login(request, "ben@demo.de");
+  const own = await (await request.get(`/api/mobile/plan?m=${ym}`, benApi)).json();
+  const ownCell = own.shifts.find((s: any) => s.userId === ben && s.date === `${ym}-06`);
+  expect(own.types.find((t: any) => t.id === ownCell.shiftTypeId)?.kind).toBe("SICK");
 
   const pdl = await login(request, "pdl@demo.de");
   const q = await (await request.get(`/api/mobile/plan?m=${ym}`, pdl)).json();
