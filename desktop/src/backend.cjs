@@ -54,6 +54,39 @@ async function applyMigrations(client, migrationsDir, log) {
   }
 }
 
+/**
+ * Starts the cluster. On Windows postgres.exe refuses to run for a user with administrator rights (and exits at once),
+ * whereas pg_ctl.exe drops those rights itself, so Windows goes through pg_ctl; elsewhere embedded-postgres runs it directly.
+ * Returns the function that stops it again.
+ */
+async function startPostgres(pg, pgDir, port, log) {
+  if (process.platform !== "win32") {
+    await pg.start();
+    return () => pg.stop().catch(() => {});
+  }
+  const { pg_ctl: pgCtl } = await import("@embedded-postgres/windows-x64");
+  const logFile = path.join(path.dirname(pgDir), "postgres.log");
+  const ctl = (args) =>
+    new Promise((resolve, reject) => {
+      const child = spawn(pgCtl, args, { windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      let out = "";
+      child.stdout.on("data", (d) => (out += d));
+      child.stderr.on("data", (d) => (out += d));
+      child.on("error", reject);
+      child.on("exit", (code) => (code === 0 ? resolve(out) : reject(new Error(`pg_ctl ${args[0]} beendet mit Code ${code}: ${out.trim()}`))));
+    });
+  await ctl(["stop", "-m", "fast", "-w", "-D", pgDir]).catch(() => {}); // left over from a crashed earlier run
+  try {
+    await ctl(["start", "-w", "-t", "90", "-D", pgDir, "-o", `-p ${port}`, "-l", logFile]);
+  } catch (e) {
+    let tail = "";
+    try { tail = fs.readFileSync(logFile, "utf8").slice(-1500); } catch {}
+    throw new Error(`${e.message}\n${tail}`);
+  }
+  log("Datenbank läuft.");
+  return () => ctl(["stop", "-m", "fast", "-w", "-D", pgDir]).catch(() => {});
+}
+
 function runNode(script, args, env, cwd) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [script, ...args], { cwd, env: { ...process.env, ...env, ELECTRON_RUN_AS_NODE: "1" }, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
@@ -93,19 +126,23 @@ async function start({ dataDir, appDir, migrationsDir, log = () => {} }) {
   const pg = new EmbeddedPostgres({ databaseDir: pgDir, user: DB_USER, password: cfg.dbPassword, port: pgPort, persistent: true, onLog: () => {}, onError: (m) => log(`[postgres] ${String(m).trim()}`) });
 
   log(fresh ? "Datenbank wird angelegt …" : "Datenbank wird gestartet …");
+  let stopPostgres;
   try {
     if (fresh) await pg.initialise();
     log("Datenbank angelegt, wird gestartet …");
-    await pg.start();
+    stopPostgres = await startPostgres(pg, pgDir, pgPort, log);
   } catch (e) {
-    throw new Error(`PostgreSQL konnte nicht starten: ${require("node:util").inspect(e)}`);
+    throw new Error(`PostgreSQL konnte nicht starten: ${e && e.message ? e.message : require("node:util").inspect(e)}`);
   }
-  const stopPostgres = () => pg.stop().catch(() => {});
 
   let web = null;
   try {
-    if (fresh) await pg.createDatabase(DB_NAME);
-    const client = pg.getPgClient(DB_NAME);
+    if (fresh) {
+      const admin = pg.getPgClient("postgres", "127.0.0.1");
+      await admin.connect();
+      try { await admin.query(`CREATE DATABASE ${admin.escapeIdentifier(DB_NAME)}`); } finally { await admin.end(); }
+    }
+    const client = pg.getPgClient(DB_NAME, "127.0.0.1");
     await client.connect();
     let needsSeed;
     try {
