@@ -26,21 +26,23 @@ export async function leaveFreeDays(wardId: string, year: number, db: Db = prism
 export async function wardSettings(wardId: string) {
   const ward = await prisma.ward.findUniqueOrThrow({ where: { id: wardId }, include: { holidays: { orderBy: { date: "asc" } } } });
   return {
-    name: ward.name, state: isState(ward.state) ? ward.state : null, leaveCountMode: ward.leaveCountMode as CountMode, holidaysAreLeaveDays: ward.holidaysAreLeaveDays,
+    name: ward.name, state: isState(ward.state) ? ward.state : null, leaveCountMode: ward.leaveCountMode as CountMode, holidaysAreLeaveDays: ward.holidaysAreLeaveDays, freeWishesPerMonth: ward.freeWishesPerMonth,
     extra: ward.holidays.map((h) => ({ id: h.id, date: toYmd(h.date), name: h.name })),
   };
 }
 
-export async function updateWardSettings(actorId: string, input: { state: string | null; leaveCountMode: CountMode; holidaysAreLeaveDays?: boolean }) {
+export async function updateWardSettings(actorId: string, input: { state: string | null; leaveCountMode: CountMode; holidaysAreLeaveDays?: boolean; freeWishesPerMonth?: number }) {
+  if (input.freeWishesPerMonth !== undefined && !(Number.isInteger(input.freeWishesPerMonth) && input.freeWishesPerMonth >= 0 && input.freeWishesPerMonth <= 15)) throw new AdminError("Wunschfrei pro Monat: bitte 0 bis 15.");
   if (input.state !== null && !isState(input.state)) throw new AdminError("Unbekanntes Bundesland.");
   if (input.leaveCountMode !== "WEEKDAYS" && input.leaveCountMode !== "ALL_DAYS") throw new AdminError("Unbekannte Zählweise.");
   return prisma.$transaction(async (tx) => {
     const me = await actor(tx, actorId, ["ADMIN"]);
     const before = await tx.ward.findUniqueOrThrow({ where: { id: me.wardId } });
     const holidaysAreLeaveDays = input.holidaysAreLeaveDays ?? before.holidaysAreLeaveDays;
-    await tx.ward.update({ where: { id: me.wardId }, data: { state: input.state, leaveCountMode: input.leaveCountMode, holidaysAreLeaveDays } });
+    const freeWishesPerMonth = input.freeWishesPerMonth ?? before.freeWishesPerMonth;
+    await tx.ward.update({ where: { id: me.wardId }, data: { state: input.state, leaveCountMode: input.leaveCountMode, holidaysAreLeaveDays, freeWishesPerMonth } });
     await tx.userAudit.create({
-      data: { actorId, action: "WARD_SETTINGS", detail: { from: { state: before.state, leaveCountMode: before.leaveCountMode, holidaysAreLeaveDays: before.holidaysAreLeaveDays }, to: { ...input, holidaysAreLeaveDays } } },
+      data: { actorId, action: "WARD_SETTINGS", detail: { from: { state: before.state, leaveCountMode: before.leaveCountMode, holidaysAreLeaveDays: before.holidaysAreLeaveDays, freeWishesPerMonth: before.freeWishesPerMonth }, to: { ...input, holidaysAreLeaveDays, freeWishesPerMonth } } },
     });
   });
 }

@@ -29,3 +29,8 @@ export interface Balance {
   approvedHeld?: number; requested?: number; forfeited?: number; expiring?: number; carryOverExpires?: string | null; mode?: "WEEKDAYS" | "ALL_DAYS";
 }
 export interface SickReportItem { id: string; userId: string; name: string; start: string; end: string; note: string | null; reportedBy: string; selfReported: boolean; active: boolean }
+export interface WishItem { id: string; date: string; kind: "FREE" | "SHIFT"; shiftTypeId: string | null; shiftType: { code: string; name: string } | null; note: string | null }
+export interface WishesData {
+  month: string; closed: string | null; freeLimit: number; freeLeft: number; wishes: WishItem[];
+  preference: { prefer: string[]; avoid: string[]; note: string | null }; shifts: { id: string; code: string; name: string }[];
+}
