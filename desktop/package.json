@@ -1,0 +1,63 @@
+{
+  "name": "dienstplan-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Dienstplan für Windows: die Web-App mit eigener Datenbank in einem Fenster",
+  "author": "Dienstplan",
+  "main": "src/main.cjs",
+  "scripts": {
+    "prepare-app": "node scripts/prepare.mjs",
+    "test": "node scripts/test-backend.mjs",
+    "dist": "npm run prepare-app && electron-builder --win nsis --x64 --publish never",
+    "pack": "npm run prepare-app && electron-builder --dir --publish never",
+    "smoke": "electron . --smoke"
+  },
+  "dependencies": {
+    "embedded-postgres": "17.10.0-beta.17",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "electron": "^44.8.0",
+    "electron-builder": "^26.15.0",
+    "esbuild": "^0.28.2"
+  },
+  "build": {
+    "appId": "de.dienstplan.desktop",
+    "productName": "Dienstplan",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "src/**",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "build/app",
+        "to": "web"
+      },
+      {
+        "from": "build/migrations",
+        "to": "migrations"
+      }
+    ],
+    "asar": false,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "artifactName": "Dienstplan-Setup-${version}.exe",
+      "deleteAppDataOnUninstall": false
+    },
+    "afterPack": "scripts/afterPack.cjs"
+  }
+}

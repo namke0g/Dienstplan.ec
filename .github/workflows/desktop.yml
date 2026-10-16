@@ -1,0 +1,71 @@
+name: Desktop (Windows)
+
+# Builds the Windows installer (desktop/). Download it from the run page under "Artifacts".
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+  pull_request:
+    paths: ["desktop/**", ".github/workflows/desktop.yml"]
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend test (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dienstplan/db generate
+      - run: pnpm --filter @dienstplan/web build
+      - run: npm ci
+        working-directory: desktop
+      - run: npm run prepare-app
+        working-directory: desktop
+      - run: npm test
+        working-directory: desktop
+
+  windows:
+    name: Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @dienstplan/db generate
+      - run: pnpm --filter @dienstplan/web build
+      - run: npm ci
+        working-directory: desktop
+      - name: Build installer
+        working-directory: desktop
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: npm run dist
+      - name: Start the unpacked app once (database, demo data, web server, login)
+        working-directory: desktop
+        shell: pwsh
+        run: |
+          $log = Join-Path $env:RUNNER_TEMP "smoke.log"
+          $env:SMOKE_LOG = $log
+          $p = Start-Process -FilePath "dist\win-unpacked\Dienstplan.exe" -ArgumentList "--smoke" -Wait -PassThru
+          if (Test-Path $log) { Get-Content $log }
+          if ($p.ExitCode -ne 0) { throw "Smoke test failed with exit code $($p.ExitCode)" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Dienstplan-Setup
+          path: desktop/dist/Dienstplan-Setup-*.exe
+          if-no-files-found: error
+          retention-days: 30
