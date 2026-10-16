@@ -60,6 +60,18 @@ Die App ist ein Expo-Projekt (`apps/mobile`) und wird mit EAS gebaut; sie sprich
 4. `npx eas build --platform all --profile preview` für interne Tests, `--profile production` und `eas submit` für die Stores.
 5. Optional: Expo-Access-Token (Enhanced Push Security) als `EXPO_ACCESS_TOKEN` in `.env`.
 
+### Push im Browser (optional)
+Zusätzlich zur App können Mitteilungen auch im Browser erscheinen, z. B. am Stations-PC oder als zum Home-Bildschirm hinzugefügte Web-App.
+1. Schlüssel einmalig erzeugen: `docker compose run --rm migrate pnpm --filter @dienstplan/db exec web-push generate-vapid-keys`
+2. In `.env` `VAPID_SUBJECT` (z. B. `mailto:it@klinik.de`), `VAPID_PUBLIC_KEY` und `VAPID_PRIVATE_KEY` eintragen, dann `docker compose up -d web`. Der private Schlüssel ist geheim wie ein Passwort.
+3. Jede Person schaltet es unter *Mitteilungen → Browser-Mitteilungen* pro Browser ein.
+
+Wichtig:
+- Der Text im Browser ist bewusst **allgemein** („Es gibt eine neue Mitteilung …“), weil Bildschirme geteilt werden; Details sieht man erst nach der Anmeldung. Beim **Abmelden** wird der Browser automatisch ausgetragen.
+- iPhone/iPad: nur ab iOS 16.4 und nur, wenn die Seite über *Teilen → Zum Home-Bildschirm* hinzugefügt und von dort geöffnet wurde.
+- Fehlt einer der drei Werte, startet die App nicht (Fehlermeldung im Log). Ohne alle drei ist Browser-Push einfach aus.
+- Nicht zugestellte Mitteilungen (z. B. weil ein Push-Dienst nicht erreichbar war) werden alle `PUSH_RETRY_SECONDS` (Standard 300) erneut versucht, bis zu 24 Stunden lang.
+
 ## 5. Laufender Betrieb
 | Aufgabe | Befehl |
 |---|---|

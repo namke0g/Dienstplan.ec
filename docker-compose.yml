@@ -37,6 +37,11 @@ services:
       SESSION_SECRET: ${SESSION_SECRET:?Bitte SESSION_SECRET in .env setzen (openssl rand -hex 32)}
       TRUST_PROXY: "1" # client IPs come from Caddy; needed for the login rate limit
       EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+      # Browser push (optional): all three or none
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      PUSH_RETRY_SECONDS: ${PUSH_RETRY_SECONDS:-300}
     depends_on:
       db: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }

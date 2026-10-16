@@ -1,5 +1,22 @@
 import { defineConfig } from "@playwright/test";
 import { existsSync } from "node:fs";
+import { createECDH } from "node:crypto";
+import { execSync } from "node:child_process";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+// Self-signed certificate for the fake Web Push service in e2e/webpush.spec.ts. Created once by the runner; workers inherit the path.
+if (!process.env.PUSH_TEST_CERT_DIR) {
+  const dir = mkdtempSync(join(tmpdir(), "push-cert-"));
+  execSync(`openssl req -x509 -newkey rsa:2048 -nodes -keyout ${dir}/k.pem -out ${dir}/c.pem -days 1 -subj /CN=localhost -addext subjectAltName=DNS:localhost`, { stdio: "ignore" });
+  process.env.PUSH_TEST_CERT_DIR = dir;
+}
+
+// fresh VAPID key pair per test run (P-256, base64url) - nothing secret is committed
+const ecdh = createECDH("prime256v1");
+ecdh.generateKeys();
+const vapid = { publicKey: ecdh.getPublicKey().toString("base64url"), privateKey: ecdh.getPrivateKey().toString("base64url") };
 
 const chromium = "/opt/pw-browsers/chromium";
 export default defineConfig({
@@ -25,6 +42,11 @@ export default defineConfig({
       SESSION_SECRET: "e2e0123456789abcdef0123456789abcdef01234",
       DATABASE_URL: process.env.DATABASE_URL ?? "postgresql://dienstplan:dienstplan@localhost:5432/dienstplan",
       EXPO_PUSH_URL: "http://localhost:3199/push",
+      VAPID_SUBJECT: "mailto:e2e@example.com",
+      VAPID_PUBLIC_KEY: vapid.publicKey,
+      VAPID_PRIVATE_KEY: vapid.privateKey,
+      PUSH_RETRY_SECONDS: "0", // no background timer in tests; deliveries happen right after each action
+      NODE_EXTRA_CA_CERTS: join(process.env.PUSH_TEST_CERT_DIR!, "c.pem"), // trust exactly the test certificate; TLS verification stays on
     },
   },
 });

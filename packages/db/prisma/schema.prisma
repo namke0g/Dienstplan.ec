@@ -194,7 +194,11 @@ model DeviceToken {
   userId   String
   user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   platform Platform
+  /// Expo push token (IOS/ANDROID) or the Web Push endpoint URL (WEB)
   token    String   @unique
+  /// Web Push only: the subscription's encryption keys
+  p256dh   String?
+  auth     String?
   createdAt DateTime @default(now())
 }
 
