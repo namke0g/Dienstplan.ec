@@ -4,7 +4,8 @@ import bcrypt from "bcryptjs";
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, deliverPendingNotifications, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
-  createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError } from "@dienstplan/db";
+  createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
+  setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError } from "@dienstplan/db";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 
 export async function loginAction(_: string | null, form: FormData): Promise<string | null> {
@@ -149,4 +150,31 @@ export async function decideSwapAction(id: string, decision: "APPROVED" | "REJEC
   const me = await requireUser(["PLANNER", "ADMIN"]);
   await swapGuard("/antraege", () => decideSwap(id, me.id, decision, String(form.get("comment") ?? "")));
   revalidatePath("/mein-plan");
+}
+
+async function balanceGuard(year: number, fn: () => Promise<unknown>) {
+  let err: string | null = null;
+  try { await fn(); } catch (e) { if (e instanceof BalanceError) err = e.message; else throw e; }
+  revalidatePath("/urlaubskonto"); revalidatePath("/urlaub");
+  if (err) redirect(`/urlaubskonto?y=${year}&err=${encodeURIComponent(err)}`);
+}
+const num = (v: FormDataEntryValue | null, fallback = 0) => { const s = String(v ?? "").trim().replace(",", "."); return s === "" ? fallback : Number(s); };
+
+export async function saveEntitlementAction(userId: string, year: number, form: FormData) {
+  const me = await requireUser(["PLANNER", "ADMIN"]);
+  await balanceGuard(year, () => setEntitlement(me.id, userId, year, {
+    entitlement: num(form.get("entitlement")), carryOver: num(form.get("carryOver")), adjustment: num(form.get("adjustment")),
+    carryOverExpires: String(form.get("carryOverExpires") ?? "") || null, note: String(form.get("note") ?? ""),
+  }));
+  redirect(`/urlaubskonto?y=${year}`);
+}
+export async function defaultEntitlementsAction(year: number, form: FormData) {
+  const me = await requireUser(["PLANNER", "ADMIN"]);
+  await balanceGuard(year, () => setDefaultEntitlements(me.id, year, num(form.get("days"), 30)));
+  redirect(`/urlaubskonto?y=${year}&ok=defaults`);
+}
+export async function rolloverAction(year: number, form: FormData) {
+  const me = await requireUser(["PLANNER", "ADMIN"]);
+  await balanceGuard(year, () => rolloverYear(me.id, year, String(form.get("expires") ?? "") || null));
+  redirect(`/urlaubskonto?y=${year + 1}&ok=rollover`);
 }

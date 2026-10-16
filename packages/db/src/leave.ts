@@ -3,6 +3,7 @@ import { eachDay, monthsBetween, rangesOverlap, validateLeaveRange } from "@dien
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 import { actor, applyShift, ForbiddenError, loadState, type Tx } from "./service";
+import { assertEnoughLeave } from "./balance";
 
 const DECIDERS: Role[] = ["PLANNER", "ADMIN", "PDL"];
 const REQUESTABLE = ["VACATION", "SPECIAL_LEAVE"] as const;
@@ -30,6 +31,10 @@ export async function createLeave(userId: string, input: { shiftTypeId: string; 
     const mine = await tx.leaveRequest.findMany({ where: { userId, status: { in: ["PENDING", "APPROVED"] }, end: { gte: toDate(input.start) }, start: { lte: toDate(input.end) } } });
     if (mine.some((r) => rangesOverlap({ start: toYmd(r.start), end: toYmd(r.end) }, input))) throw new LeaveError("Der Zeitraum überschneidet sich mit einem bestehenden Antrag.");
 
+    if (type.consumesLeave) {
+      const short = await assertEnoughLeave(tx, userId, input.start, input.end, today);
+      if (short) throw new LeaveError(short);
+    }
     const req = await tx.leaveRequest.create({ data: { userId, shiftTypeId: type.id, start: toDate(input.start), end: toDate(input.end), note } });
     await notifyDeciders(tx, user.wardId, "Neuer Abwesenheitsantrag", `${user.name}: ${type.name} ${dmy(input.start)}–${dmy(input.end)}`);
     return req;

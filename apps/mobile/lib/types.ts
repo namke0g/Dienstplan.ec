@@ -21,3 +21,8 @@ export interface SwapOptions {
   handOverProblems?: string[];
   theirs?: { date: string; type: SwapType; problems: string[] }[];
 }
+export interface Balance {
+  configured: boolean; year: number;
+  total?: number; remaining?: number; entitlement?: number; carryOver?: number; adjustment?: number; taken?: number; planned?: number;
+  approvedHeld?: number; requested?: number; forfeited?: number; expiring?: number; carryOverExpires?: string | null; mode?: "WEEKDAYS" | "ALL_DAYS";
+}

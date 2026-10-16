@@ -1,4 +1,5 @@
-import { prisma, toYmd } from "@dienstplan/db";
+import { getBalance, prisma, toYmd } from "@dienstplan/db";
+import { BalanceCard } from "@/components/BalanceCard";
 import { requireUser } from "@/lib/auth";
 import { cancelLeaveAction, createLeaveAction } from "@/app/actions";
 
@@ -12,16 +13,21 @@ export default async function UrlaubPage({ searchParams }: { searchParams: Promi
   const me = await requireUser();
   const { err, ok } = await searchParams;
   const [types, requests] = await Promise.all([
-    prisma.shiftType.findMany({ where: { wardId: me.wardId, kind: { in: ["VACATION", "SPECIAL_LEAVE"] } }, orderBy: { name: "asc" } }),
+    prisma.shiftType.findMany({ where: { wardId: me.wardId, kind: { in: ["VACATION", "SPECIAL_LEAVE"] } }, orderBy: [{ consumesLeave: "desc" }, { name: "asc" }] }),
     prisma.leaveRequest.findMany({ where: { userId: me.id }, orderBy: { start: "desc" }, include: { shiftType: true, decidedBy: { select: { name: true } } }, take: 50 }),
   ]);
   const today = new Date().toISOString().slice(0, 10);
+  const year = Number(today.slice(0, 4));
+  const [bal, balNext] = await Promise.all([getBalance(me.id, year), getBalance(me.id, year + 1)]);
 
   return (
     <>
       <h1 className="text-lg font-semibold">Urlaub &amp; Abwesenheit beantragen</h1>
       {err && <p role="alert" className="card border-rose-300 text-sm text-rose-700">{err}</p>}
       {ok && <p role="status" className="card border-emerald-300 text-sm text-emerald-700">Antrag gesendet. Planung und PDL wurden benachrichtigt.</p>}
+
+      <BalanceCard b={bal} />
+      {balNext.configured && <BalanceCard b={balNext} />}
 
       <form action={createLeaveAction} className="card grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
         <label className="text-xs font-medium">Art
