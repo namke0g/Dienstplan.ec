@@ -1,6 +1,6 @@
 import { prisma, toDate, toYmd, daysInMonth } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { ABSENT_TYPE, canSeeSick, maskSick, snapshotOf, toGridTypes, wardContext, planFor } from "@/lib/roster";
+import { ABSENT_TYPE, canSeeSick, maskSick, monthHolidays, snapshotOf, toGridTypes, wardContext, planFor } from "@/lib/roster";
 import { fmtTime, monthParam, WEEKDAYS, wd, isWeekend, STATUS_LABEL } from "@/lib/format";
 import { MonthNav } from "@/components/MonthNav";
 import { Legend, RosterGrid } from "@/components/RosterGrid";
@@ -10,7 +10,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
   const me = await requireUser();
   const month = monthParam((await searchParams).m);
   const days = daysInMonth(`${month}-01`);
-  const { staff, types } = await wardContext(me.wardId, [month]);
+  const [{ staff, types }, holidays] = await Promise.all([wardContext(me.wardId, [month]), monthHolidays(me.wardId, month)]);
   const plan = await planFor(me.wardId, month);
   const published = plan?.publishedSnapshot != null;
   const allShifts = snapshotOf(plan);
@@ -59,6 +59,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
                   <li key={d} className={`card flex items-start gap-3 !p-3 ${isWeekend(d) ? "bg-slate-50" : ""}`}>
                     <div className="w-10 text-center"><div className="text-xs text-slate-500">{WEEKDAYS[wd(d)]}</div><div className="font-semibold">{d.slice(8)}</div></div>
                     <div className="flex-1 space-y-1 text-sm">
+                      {holidays[d] && <div className="text-xs font-medium text-rose-700 dark:text-rose-300">Feiertag: {holidays[d]}</div>}
                       {t && <div className="inline-flex items-center gap-2 rounded-lg px-2 py-0.5 text-white" style={{ background: t.color }}>{t.name} <span className="opacity-80">{t.kind === "WORK" ? `${fmtTime(t.startMin)}–${fmtTime(t.endMin)}` : t.paid ? "bezahlt" : "unbezahlt"}</span></div>}
                       {es.map((e) => (
                         <form key={e.id} action={deletePersonalAction.bind(null, e.id)} className="flex items-center justify-between gap-2 rounded-lg bg-violet-50 px-2 py-0.5 text-violet-900 dark:bg-violet-950 dark:text-violet-100">
@@ -83,7 +84,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
           <section className="space-y-2">
             <h2 className="font-semibold">Team</h2>
             <Legend types={gridTypes} />
-            <RosterGrid editable={false} days={days} staff={staff} types={gridTypes} highlightUser={me.id}
+            <RosterGrid editable={false} days={days} staff={staff} types={gridTypes} highlightUser={me.id} holidays={holidays}
               shifts={Object.fromEntries(shifts.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]))} />
           </section>
         </>

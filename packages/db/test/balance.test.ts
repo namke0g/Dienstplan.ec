@@ -66,7 +66,7 @@ describe("leave balance", () => {
   it("checks each year separately for requests across New Year", async () => {
     await setEntitlement(planner, clara, 2035, { entitlement: 30 });
     await setEntitlement(planner, clara, 2036, { entitlement: 1 });
-    await expect(createLeave(clara, { shiftTypeId: U, start: "2035-12-31", end: "2036-01-03" }, T)).rejects.toThrow(/2036: 1 Tag\(e\) verfügbar, 3 beantragt/); // Jan 1–3 2036 = Tue–Thu
+    await expect(createLeave(clara, { shiftTypeId: U, start: "2035-12-31", end: "2036-01-03" }, T)).rejects.toThrow(/2036: 1 Tag\(e\) verfügbar, 2 beantragt/); // Jan 1–3 2036 = Tue–Thu, but 1 Jan is Neujahr (holiday, not deducted)
   });
 
   it("carry-over: counts while valid, lapses unused after its expiry", async () => {

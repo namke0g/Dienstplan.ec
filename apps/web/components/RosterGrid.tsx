@@ -12,10 +12,11 @@ interface Props {
   types: GridType[];
   shifts: Record<string, string>; // `${userId}|${date}` -> shiftTypeId
   flagged?: string[]; // cells with rule violations
+  holidays?: Record<string, string>; // date -> name of public holidays / ward days off
   highlightUser?: string;
 }
 
-export function RosterGrid({ planId, editable, days, staff, types, shifts: initial, flagged = [], highlightUser }: Props) {
+export function RosterGrid({ planId, editable, days, staff, types, shifts: initial, flagged = [], highlightUser, holidays = {} }: Props) {
   const [shifts, setShifts] = useState(initial);
   const [, start] = useTransition();
   const byId = new Map(types.map((t) => [t.id, t]));
@@ -44,8 +45,9 @@ export function RosterGrid({ planId, editable, days, staff, types, shifts: initi
           <tr>
             <th className="sticky left-0 z-10 min-w-36 border-b border-slate-200 bg-white p-2 text-left dark:border-slate-800 dark:bg-slate-900">Mitarbeiter:in</th>
             {days.map((d) => (
-              <th key={d} className={`min-w-9 border-b border-slate-200 p-1 text-center font-medium dark:border-slate-800 ${isWeekend(d) ? "bg-slate-100 dark:bg-slate-800" : ""}`}>
-                <div className="text-slate-500">{WEEKDAYS[wd(d)]}</div>{Number(d.slice(8))}
+              <th key={d} title={holidays[d]} className={`min-w-9 border-b border-slate-200 p-1 text-center font-medium dark:border-slate-800 ${holidays[d] ? "bg-rose-50 text-rose-700 dark:bg-rose-950 dark:text-rose-200" : isWeekend(d) ? "bg-slate-100 dark:bg-slate-800" : ""}`}>
+                <div className={holidays[d] ? "" : "text-slate-500"}>{WEEKDAYS[wd(d)]}</div>{Number(d.slice(8))}
+                {holidays[d] && <span className="sr-only">, Feiertag: {holidays[d]}</span>}
               </th>
             ))}
           </tr>
@@ -58,7 +60,7 @@ export function RosterGrid({ planId, editable, days, staff, types, shifts: initi
                 const t = byId.get(shifts[`${u.id}|${d}`] ?? "");
                 const isBad = bad.has(`${u.id}|${d}`);
                 return (
-                  <td key={d} className={`border-b border-slate-100 p-0.5 text-center dark:border-slate-800 ${isWeekend(d) ? "bg-slate-50 dark:bg-slate-900/60" : ""}`}>
+                  <td key={d} className={`border-b border-slate-100 p-0.5 text-center dark:border-slate-800 ${holidays[d] ? "bg-rose-50/60 dark:bg-rose-950/40" : isWeekend(d) ? "bg-slate-50 dark:bg-slate-900/60" : ""}`}>
                     <div className="relative">
                     <button type="button" disabled={!editable} onClick={(e) => { e.stopPropagation(); setOpen(open === `${u.id}|${d}` ? null : `${u.id}|${d}`); }}
                       aria-label={`${u.name}, ${d}: ${t?.name ?? "frei"}`} aria-haspopup="menu" aria-expanded={open === `${u.id}|${d}`}

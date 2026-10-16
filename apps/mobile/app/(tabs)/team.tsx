@@ -19,6 +19,7 @@ export default function Team() {
   const types = new Map((data?.types ?? []).map((x) => [x.id, x]));
   const at = new Map((data?.shifts ?? []).map((s) => [`${s.userId}|${s.date}`, types.get(s.shiftTypeId)]));
   const days = daysOf(month);
+  const holiday = new Map((data?.holidays ?? []).map((h) => [h.date, h.name]));
 
   return (
     <ScrollView contentContainerStyle={{ padding: 16, gap: 12 }} refreshControl={<RefreshControl refreshing={loading} onRefresh={refresh} />}>
@@ -41,8 +42,9 @@ export default function Team() {
                 <View style={{ flexDirection: "row" }}>
                   <View style={{ width: 110, padding: 6 }} />
                   {days.map((d) => (
-                    <View key={d} style={{ width: CELL, alignItems: "center", paddingVertical: 4, backgroundColor: [0, 6].includes(wd(d)) ? t.weekend : undefined }}>
-                      <Text style={{ color: t.sub, fontSize: 10 }}>{WEEKDAYS[wd(d)]}</Text><Text style={{ color: t.text, fontSize: 12, fontWeight: "600" }}>{Number(d.slice(8))}</Text>
+                    <View key={d} accessible accessibilityLabel={holiday.get(d) ? `${d}, Feiertag: ${holiday.get(d)}` : d}
+                      style={{ width: CELL, alignItems: "center", paddingVertical: 4, backgroundColor: holiday.has(d) ? t.danger + "22" : [0, 6].includes(wd(d)) ? t.weekend : undefined }}>
+                      <Text style={{ color: holiday.has(d) ? t.danger : t.sub, fontSize: 10 }}>{WEEKDAYS[wd(d)]}</Text><Text style={{ color: holiday.has(d) ? t.danger : t.text, fontSize: 12, fontWeight: "600" }}>{Number(d.slice(8))}</Text>
                     </View>
                   ))}
                 </View>

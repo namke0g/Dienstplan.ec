@@ -70,6 +70,11 @@ model Ward {
   name     String
   /// WEEKDAYS: only Mon–Fri leave days are deducted (5-day-week entitlement); ALL_DAYS: every calendar day
   leaveCountMode LeaveCountMode @default(WEEKDAYS)
+  /// federal state for public holidays (BW, BY, BE, ...); null = no holidays are taken into account
+  state    String?
+  /// false (default, BUrlG § 3): holidays are never leave days. true: holidays count as leave days (some 24/7 rosters / agreements)
+  holidaysAreLeaveDays Boolean @default(false)
+  holidays WardHoliday[]
   users    User[]
   plans    Plan[]
   shiftTypes ShiftType[]
@@ -326,4 +331,15 @@ model UserAudit {
   createdAt DateTime @default(now())
 
   @@index([createdAt])
+}
+
+/// Extra days off of a ward on top of the state's public holidays (local holidays, e.g. Mariä Himmelfahrt in Bavarian municipalities).
+model WardHoliday {
+  id     String   @id @default(cuid())
+  wardId String
+  ward   Ward     @relation(fields: [wardId], references: [id], onDelete: Cascade)
+  date   DateTime @db.Date
+  name   String
+
+  @@unique([wardId, date])
 }

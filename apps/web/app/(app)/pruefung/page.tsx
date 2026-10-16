@@ -1,6 +1,6 @@
 import { prisma, daysInMonth, toYmd } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { ABSENT_TYPE, canSeeSick, describeViolation, draftShifts, maskSick, toGridTypes, violationsFor, wardContext } from "@/lib/roster";
+import { ABSENT_TYPE, canSeeSick, describeViolation, draftShifts, maskSick, toGridTypes, violationsFor, monthHolidays, wardContext } from "@/lib/roster";
 import { monthLabel } from "@/lib/format";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Legend, RosterGrid } from "@/components/RosterGrid";
@@ -34,7 +34,7 @@ export default async function PruefungPage({ searchParams }: { searchParams: Pro
               {mine && mine.decision !== "PENDING" && <span className="text-sm">Deine Entscheidung: {mine.decision === "APPROVED" ? "✅ genehmigt" : "❌ abgelehnt"}</span>}
             </div>
             <Legend types={gridTypes} />
-            <RosterGrid editable={false} days={daysInMonth(`${month}-01`)} staff={staff} types={gridTypes}
+            <RosterGrid editable={false} days={daysInMonth(`${month}-01`)} staff={staff} types={gridTypes} holidays={await monthHolidays(me.wardId, month)}
               shifts={Object.fromEntries(shifts.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]))}
               flagged={violations.flatMap((v) => ("userId" in v ? [`${v.userId}|${v.date}`] : []))} />
             {violations.length > 0 && (

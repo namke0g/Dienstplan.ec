@@ -20,7 +20,7 @@ export function BalanceCard({ b }: { b: MaybeBalance }) {
         {b.requested > 0 && <div><dt className="text-xs text-slate-500">Beantragt (offen)</dt><dd>{n(b.requested)}</dd></div>}
       </dl>
       {b.expiring > 0 && b.carryOverExpires && <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900 dark:bg-amber-950 dark:text-amber-100">⚠️ {n(b.expiring)} Tag(e) Übertrag verfallen am {dmy(b.carryOverExpires)}, wenn sie bis dahin nicht genommen werden.</p>}
-      <p className="text-xs text-slate-500">{b.mode === "WEEKDAYS" ? "Gezählt werden Urlaubstage von Montag bis Freitag." : "Gezählt werden alle Kalendertage."} Unbezahlter Urlaub und Sonderurlaub werden nicht abgezogen.</p>
+      <p className="text-xs text-slate-500">{b.mode === "WEEKDAYS" ? "Gezählt werden Urlaubstage von Montag bis Freitag." : "Gezählt werden alle Kalendertage."} Feiertage, unbezahlter Urlaub und Sonderurlaub werden nicht abgezogen.</p>
     </div>
   );
 }

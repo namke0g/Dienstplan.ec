@@ -19,7 +19,8 @@ Dienstplanung für Stationen: Der Plan wird von der Planung erstellt und geht er
 | Push-Benachrichtigungen iOS/Android (Expo → APNs/FCM): Plan veröffentlicht, Dienständerung (kurzfristig = hohe Priorität), Prüfung angefordert, Entscheidung | ✅ |
 | Mobile App (Expo/React Native): Login, Mein Plan, Team, Mitteilungen, Kalender-Abo, Offline-Cache, Push an/aus | ✅ (noch nicht auf echtem Gerät getestet) |
 | Browser-Push (Web Push, VAPID): allgemeiner Text für geteilte Bildschirme, Austragen beim Abmelden, Wiederholung bei Ausfall | ✅ |
-| Feiertage im Urlaubskonto, Krankmeldung durch Mitarbeitende, Storno genehmigter Anträge | ⏳ später |
+| Feiertage je Bundesland (inkl. Ostertermine, Änderungen seit 2017) und örtliche freie Tage: im Dienstplan markiert, im Urlaubskonto nicht abgezogen | ✅ |
+| Krankmeldung durch Mitarbeitende, Storno genehmigter Anträge | ⏳ später |
 | Zeiterfassung, Druck/PDF, KIS/DATEV | ⏳ später |
 
 ## Aufbau

@@ -61,3 +61,17 @@ describe("balance", () => {
     expect(computeBalance({ ...base, ent: ent({ entitlement: 28.5 }), requested: ["2026-07-06"] }).remaining).toBe(27.5);
   });
 });
+
+describe("public holidays", () => {
+  const easterWeek = eachDay("2026-03-30", "2026-04-10"); // Mon 30.3. – Fri 10.4.2026, contains Karfreitag 3.4. and Ostermontag 6.4.
+  const by = new Set(["2026-04-03", "2026-04-06"]);
+  it("are not deducted from leave, in either counting mode", () => {
+    expect(countDays(easterWeek, "WEEKDAYS")).toBe(10);
+    expect(countDays(easterWeek, "WEEKDAYS", by)).toBe(8);
+    expect(countDays(easterWeek, "ALL_DAYS", by)).toBe(10); // 12 calendar days minus 2 holidays
+  });
+  it("flow into the balance for roster days and requests", () => {
+    const b = computeBalance({ ...base, ent: ent(), today: "2026-01-02", inRoster: easterWeek.slice(0, 6), requested: easterWeek.slice(6), holidays: by });
+    expect(b).toMatchObject({ planned: 4, requested: 4, remaining: 22 }); // without holidays: 5 + 5 => 20
+  });
+});

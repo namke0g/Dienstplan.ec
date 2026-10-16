@@ -1,4 +1,4 @@
-import { prisma, toYmd, toDate, daysInMonth, type SnapshotShift } from "@dienstplan/db";
+import { prisma, toYmd, toDate, daysInMonth, wardHolidays, type SnapshotShift } from "@dienstplan/db";
 import { validateRoster, DEFAULT_RULES, type Assignment, type Violation } from "@dienstplan/core";
 
 /**
@@ -59,3 +59,9 @@ export function maskSick<T extends { userId: string; shiftTypeId: string }>(
 export const canSeeSick = (role: string) => role === "PLANNER" || role === "ADMIN" || role === "PDL";
 export const toGridTypes = (types: { id: string; code: string; name: string; color: string; kind: string; paid: boolean }[]) =>
   types.map(({ id, code, name, color, kind, paid }) => ({ id, code, name, color, kind, paid }));
+
+/** Public holidays and ward days off in a month, as date -> name (for the grids). */
+export async function monthHolidays(wardId: string, month: string): Promise<Record<string, string>> {
+  const days = daysInMonth(`${month}-01`);
+  return Object.fromEntries(await wardHolidays(wardId, days[0]!, days[days.length - 1]!));
+}

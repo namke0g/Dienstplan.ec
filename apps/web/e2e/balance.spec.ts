@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 import { execSync } from "node:child_process";
+import { holidayMap } from "@dienstplan/core";
 
 const login = async (page: Page, email: string) => {
   await page.context().clearCookies();
@@ -10,14 +11,19 @@ const login = async (page: Page, email: string) => {
   await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 };
 
-/** First Monday of next month and the Friday of that week (5 counted weekdays). */
-const week = () => {
+const iso = (d: Date) => d.toISOString().slice(0, 10);
+/** Mon–Fri weeks without public holidays (demo ward: NRW), starting with the first Monday of next month. */
+function freeWeeks(): { mon: string; fri: string; year: number }[] {
   const d = new Date(); d.setUTCDate(1); d.setUTCMonth(d.getUTCMonth() + 1);
   while (d.getUTCDay() !== 1) d.setUTCDate(d.getUTCDate() + 1);
-  const mon = d.toISOString().slice(0, 10);
-  const fri = new Date(d.getTime() + 4 * 86_400_000).toISOString().slice(0, 10);
-  return { mon, fri, year: Number(mon.slice(0, 4)), thu: new Date(d.getTime() + 3 * 86_400_000).toISOString().slice(0, 10) };
-};
+  const out = [];
+  for (let i = 0; i < 20 && out.length < 3; i++, d.setUTCDate(d.getUTCDate() + 7)) {
+    const mon = iso(d), fri = iso(new Date(d.getTime() + 4 * 86_400_000));
+    if (holidayMap(mon, fri, "NW").size === 0 && mon.slice(0, 4) === fri.slice(0, 4)) out.push({ mon, fri, year: Number(mon.slice(0, 4)) });
+  }
+  return out;
+}
+const week = () => freeWeeks()[0]!;
 
 test.describe.configure({ mode: "serial" });
 test.beforeAll(() => { execSync("pnpm --filter @dienstplan/db seed", { cwd: "../..", stdio: "ignore" }); });
@@ -63,10 +69,10 @@ test("planner sets an entitlement; requests above the remaining days are refused
   await page.getByLabel("Bis").fill(w.fri);
   await page.getByRole("button", { name: "Antrag senden" }).click();
   await expect(page.getByRole("status")).toBeVisible();
-  // 3 paid days (Mon–Wed) fit exactly: they must not overlap the open unpaid request, so use another week
-  const later = new Date(Date.parse(`${w.mon}T00:00:00Z`) + 14 * 86_400_000);
-  const from = later.toISOString().slice(0, 10), to = new Date(later.getTime() + 2 * 86_400_000).toISOString().slice(0, 10);
-  if (from.startsWith(String(w.year))) {
+  // 3 paid days (Mon–Wed) fit exactly: they must not overlap the open unpaid request, so use another holiday-free week
+  const other = freeWeeks().find((x) => x.mon > w.fri && x.year === w.year);
+  const from = other?.mon ?? "", to = other ? iso(new Date(Date.parse(`${other.mon}T00:00:00Z`) + 2 * 86_400_000)) : "";
+  if (other) {
     await page.getByLabel("Art").selectOption({ label: "Urlaub" });
     await page.getByLabel("Von").fill(from);
     await page.getByLabel("Bis").fill(to);

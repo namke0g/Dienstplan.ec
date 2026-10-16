@@ -1,6 +1,6 @@
 import { prisma, daysInMonth, toDate, toYmd } from "@dienstplan/db";
 import { json, mobileUser, unauthorized } from "@/lib/mobileAuth";
-import { ABSENT_TYPE, canSeeSick, maskSick, planFor, snapshotOf, wardContext } from "@/lib/roster";
+import { ABSENT_TYPE, canSeeSick, maskSick, monthHolidays, planFor, snapshotOf, wardContext } from "@/lib/roster";
 import { monthParam } from "@/lib/format";
 
 /** Published plan for a month (what staff may see), with sick leave masked for colleagues. */
@@ -28,5 +28,6 @@ export async function GET(req: Request) {
     })),
     staff, shifts: shifts.map((s) => ({ userId: s.userId, date: s.date, shiftTypeId: s.shiftTypeId })),
     entries: entries.map((e) => ({ id: e.id, date: toYmd(e.date), title: e.title, note: e.note })),
+    holidays: Object.entries(await monthHolidays(me.wardId, month)).map(([date, name]) => ({ date, name })),
   });
 }

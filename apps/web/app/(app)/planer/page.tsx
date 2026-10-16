@@ -1,6 +1,6 @@
 import { prisma, getOrCreatePlan, daysInMonth } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { describeViolation, draftShifts, toGridTypes, violationsFor, wardContext } from "@/lib/roster";
+import { describeViolation, draftShifts, monthHolidays, toGridTypes, violationsFor, wardContext } from "@/lib/roster";
 import { fmtTime, monthParam } from "@/lib/format";
 import { MonthNav } from "@/components/MonthNav";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -11,7 +11,7 @@ export default async function PlanerPage({ searchParams }: { searchParams: Promi
   const me = await requireUser(["PLANNER", "ADMIN"]);
   const sp = await searchParams;
   const month = monthParam(sp.m);
-  const { staff, types } = await wardContext(me.wardId, [month]);
+  const [{ staff, types }, holidays] = await Promise.all([wardContext(me.wardId, [month]), monthHolidays(me.wardId, month)]);
   const plan = await getOrCreatePlan(me.wardId, `${month}-01`);
   const shifts = await draftShifts(plan.id);
   const approvals = await prisma.approval.findMany({ where: { planId: plan.id, version: plan.version }, include: { decidedBy: { select: { name: true } } } });
@@ -67,7 +67,8 @@ export default async function PlanerPage({ searchParams }: { searchParams: Promi
       <Legend types={toGridTypes(types)} />
       <RosterGrid key={`${plan.id}-${plan.version}-${plan.status}`} planId={plan.id} editable={editable && plan.status !== "IN_REVIEW"} days={daysInMonth(`${month}-01`)} staff={staff}
         types={toGridTypes(types)}
-        shifts={Object.fromEntries(shifts.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]))} flagged={flagged} />
+        shifts={Object.fromEntries(shifts.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]))} flagged={flagged} holidays={holidays} />
+      {Object.keys(holidays).length > 0 && <p className="text-xs text-rose-700 dark:text-rose-300">Feiertage: {Object.entries(holidays).map(([d, n]) => `${d.slice(8)}.${d.slice(5, 7)}. ${n}`).join(" · ")}</p>}
       <p className="text-xs text-slate-500">Klick auf ein Feld öffnet die Auswahl: {types.filter((t) => t.kind === "WORK").map((t) => `${t.code} ${fmtTime(t.startMin)}–${fmtTime(t.endMin)}`).join(" · ")}. Abwesenheiten (Urlaub, Krank, Sonderurlaub) zählen nicht als Arbeitstage und nicht zur Mindestbesetzung.</p>
 
       {violations.length > 0 && (
