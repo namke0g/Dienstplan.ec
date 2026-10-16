@@ -26,7 +26,8 @@ export default function MeinPlan() {
     const abs = [...mine.values()].filter((x) => x.kind !== "WORK");
     const entries = new Map<string, PlanResponse["entries"]>();
     data.entries.forEach((e) => entries.set(e.date, [...(entries.get(e.date) ?? []), e]));
-    return { mine, work: work.length, hours, abs: abs.length, entries };
+    const holiday = new Map((data.holidays ?? []).map((h) => [h.date, h.name]));
+    return { mine, work: work.length, hours, abs: abs.length, entries, holiday };
   }, [data, user?.id]);
 
   async function add() {
@@ -61,6 +62,7 @@ export default function MeinPlan() {
                   <Text style={{ color: t.text, fontSize: 18, fontWeight: "700" }}>{d.slice(8)}</Text>
                 </View>
                 <View style={{ flex: 1, gap: 6 }}>
+                  {view.holiday.get(d) && <Text style={{ color: t.danger, fontSize: 12, fontWeight: "600" }}>Feiertag: {view.holiday.get(d)}</Text>}
                   {st && (
                     <View style={{ gap: 2 }}>
                       <Chip label={st.name} color={st.color} />

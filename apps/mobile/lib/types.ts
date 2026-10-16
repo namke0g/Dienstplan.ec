@@ -5,6 +5,8 @@ export interface PlanResponse {
   types: ShiftType[]; staff: { id: string; name: string }[];
   shifts: { userId: string; date: string; shiftTypeId: string }[];
   entries: { id: string; date: string; title: string; note: string | null }[];
+  /** public holidays and ward days off in this month (missing in responses from older servers) */
+  holidays?: { date: string; name: string }[];
 }
 export interface NotificationItem { id: string; type: string; title: string; body: string; shortNotice: boolean; createdAt: string; read: boolean }
 export interface LeaveType { id: string; name: string; paid: boolean; noteRequired: boolean }

@@ -7,7 +7,8 @@ import { revalidatePath } from "next/cache";
 import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
   createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
   setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError, ForbiddenError,
-  createManagedUser, updateManagedUser, setManagedActive, resetManagedPassword, anonymizeUser, type Role } from "@dienstplan/db";
+  createManagedUser, updateManagedUser, setManagedActive, resetManagedPassword, anonymizeUser, type Role,
+  updateWardSettings, addWardHoliday, removeWardHoliday } from "@dienstplan/db";
 import { deliverSoon } from "@/lib/deliver";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 import { clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess } from "@/lib/rateLimit";
@@ -257,4 +258,23 @@ export async function anonymizeUserAction(userId: string, form: FormData) {
   const expected = String(form.get("expected") ?? "");
   if (String(form.get("confirm") ?? "").trim().toLowerCase() !== expected.toLowerCase()) await backWith({ error: "Die Bestätigung stimmt nicht mit der E-Mail-Adresse überein. Es wurde nichts geändert." }, "");
   await backWith(await userGuard(() => anonymizeUser(me.id, userId)), "Konto anonymisiert.");
+}
+
+async function settingsBack(fn: () => Promise<unknown>, ok: string): Promise<never> {
+  const r = await userGuard(fn);
+  revalidatePath("/einstellungen"); revalidatePath("/planer"); revalidatePath("/urlaub"); revalidatePath("/urlaubskonto");
+  redirect("error" in r ? `/einstellungen?err=${encodeURIComponent(r.error)}` : `/einstellungen?ok=${encodeURIComponent(ok)}`);
+}
+export async function saveWardSettingsAction(form: FormData) {
+  const me = await requireUser(["ADMIN"]);
+  const state = String(form.get("state") ?? "");
+  await settingsBack(() => updateWardSettings(me.id, { state: state || null, leaveCountMode: String(form.get("mode")) === "ALL_DAYS" ? "ALL_DAYS" : "WEEKDAYS" }), "Gespeichert. Urlaubskonten rechnen ab sofort damit.");
+}
+export async function addWardHolidayAction(form: FormData) {
+  const me = await requireUser(["ADMIN"]);
+  await settingsBack(() => addWardHoliday(me.id, { date: String(form.get("date") ?? ""), name: String(form.get("name") ?? "") }), "Freier Tag hinzugefügt.");
+}
+export async function removeWardHolidayAction(id: string) {
+  const me = await requireUser(["ADMIN"]);
+  await settingsBack(() => removeWardHoliday(me.id, id), "Freier Tag entfernt.");
 }

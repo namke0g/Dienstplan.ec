@@ -2,8 +2,11 @@
 export type CountMode = "WEEKDAYS" | "ALL_DAYS";
 
 const dow = (ymd: string) => new Date(`${ymd}T00:00:00Z`).getUTCDay();
-export const countsAsDay = (ymd: string, mode: CountMode) => mode === "ALL_DAYS" || (dow(ymd) >= 1 && dow(ymd) <= 5);
-export const countDays = (days: string[], mode: CountMode) => [...new Set(days)].filter((d) => countsAsDay(d, mode)).length;
+/** Public holidays are never leave days (BUrlG § 3): they are not deducted in either mode. */
+export const countsAsDay = (ymd: string, mode: CountMode, holidays: ReadonlySet<string> = new Set()) =>
+  !holidays.has(ymd) && (mode === "ALL_DAYS" || (dow(ymd) >= 1 && dow(ymd) <= 5));
+export const countDays = (days: string[], mode: CountMode, holidays: ReadonlySet<string> = new Set()) =>
+  [...new Set(days)].filter((d) => countsAsDay(d, mode, holidays)).length;
 
 export interface Entitlement {
   year: number;
@@ -27,6 +30,8 @@ export interface BalanceInput {
   requested: string[];
   /** dates of approved requests that are not in the roster yet */
   held: string[];
+  /** public holidays (and the ward's extra days off) that are not deducted */
+  holidays?: ReadonlySet<string>;
 }
 
 export interface Balance {
@@ -52,16 +57,16 @@ export interface Balance {
 
 const round = (n: number) => Math.round(n * 100) / 100;
 
-export function computeBalance({ ent, today, mode, inRoster, requested, held }: BalanceInput): Balance {
+export function computeBalance({ ent, today, mode, inRoster, requested, held, holidays = new Set() }: BalanceInput): Balance {
   const inYear = (d: string) => d.startsWith(`${ent.year}-`);
-  const roster = [...new Set(inRoster)].filter(inYear).filter((d) => countsAsDay(d, mode));
+  const roster = [...new Set(inRoster)].filter(inYear).filter((d) => countsAsDay(d, mode, holidays));
   const taken = roster.filter((d) => d < today).length;
   const planned = roster.length - taken;
-  const req = countDays(requested.filter(inYear), mode);
-  const hld = countDays(held.filter(inYear), mode);
+  const req = countDays(requested.filter(inYear), mode, holidays);
+  const hld = countDays(held.filter(inYear), mode, holidays);
 
   const exp = ent.carryOverExpires;
-  const usedByExpiry = exp ? countDays([...roster, ...held.filter(inYear), ...requested.filter(inYear)].filter((d) => d <= exp), mode) : Infinity;
+  const usedByExpiry = exp ? countDays([...roster, ...held.filter(inYear), ...requested.filter(inYear)].filter((d) => d <= exp), mode, holidays) : Infinity;
   const lapse = Math.max(0, ent.carryOver - usedByExpiry);
   const expired = exp !== null && today > exp;
   const forfeited = expired ? lapse : 0;

@@ -27,9 +27,11 @@ docker compose ps                   # web sollte "healthy" sein
 **Ersten Admin anlegen** (nur einmal möglich, auf leerer Datenbank; legt Station und Standard-Dienstarten an, keine Demo-Daten):
 ```bash
 docker compose run --rm migrate pnpm --filter @dienstplan/db admin bootstrap \
-  --ward "Station 3A" --email admin@klinik.de --name "Vorname Nachname"
+  --ward "Station 3A" --email admin@klinik.de --name "Vorname Nachname" --state BY
 ```
 Das einmalige Passwort steht danach im Terminal. Anmelden unter `https://<DOMAIN>`.
+
+`--state` ist das Bundesland für die gesetzlichen Feiertage (BW, BY, BE, BB, HB, HH, HE, MV, NI, NW, RP, SL, SN, ST, SH, TH). Es lässt sich später als Admin unter *Einstellungen* ändern; dort trägst du auch örtliche Feiertage ein, die nur in Teilen des Landes gelten (z. B. Mariä Himmelfahrt in vielen bayerischen Gemeinden, Fronleichnam in Teilen von Sachsen und Thüringen, Augsburger Friedensfest). Feiertage werden im Dienstplan markiert und bei Urlaub nicht abgezogen.
 
 ## 3. Personen anlegen und verwalten
 **In der Oberfläche** (Menü *Benutzer*): Admins verwalten alle Konten, Planer:innen nur die Konten der Mitarbeitenden (sie können keine Admins, PDL- oder Betriebsrat-Konten anlegen oder ändern).
@@ -115,7 +117,7 @@ docker compose start web
 ## 7. Bekannte Grenzen
 - Kein „Passwort vergessen“ per E-Mail (ein Admin oder Planer:in erzeugt ein neues Passwort). Keine Zwei-Faktor-Anmeldung. Die Benutzerverwaltung kennt nur eine Station.
 - Die Anmeldebegrenzung liegt im Arbeitsspeicher einer Instanz (Neustart setzt sie zurück; mehrere Instanzen bräuchten einen gemeinsamen Speicher).
-- Ein Server, eine Datenbank: keine Ausfallsicherheit. Feiertage sind im Urlaubskonto nicht berücksichtigt.
+- Ein Server, eine Datenbank: keine Ausfallsicherheit. Feiertage zählen nicht als Urlaubstage; halbe Feiertage (Heiligabend, Silvester) gibt es nur als eigener freier Tag der Station.
 
 ## 8. Wie dieses Setup geprüft wurde
 - **Auf dem Entwicklungsrechner ohne Docker geprüft:** Produktions-Build ohne Datenbank, Start des Standalone-Servers (Gesundheitscheck, Anmeldung, Header, Abbruch mit Exit-Code 1 bei schwacher Konfiguration; die Browser-Tests laufen selbst gegen diesen Standalone-Server), Migration einer leeren Datenbank von null, Bootstrap/CLI, Anmeldebegrenzung, Backup, Aufbewahrung, Fehlerfall und Wiederherstellung (Zeilenzahlen und Passwort-Hash identisch), Validierung der Compose-Datei.

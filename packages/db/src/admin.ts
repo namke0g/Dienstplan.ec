@@ -3,6 +3,7 @@ import { randomBytes, randomInt } from "node:crypto";
 import type { Role } from "@prisma/client";
 import { prisma } from "./client";
 import { endBrowserPush } from "./push";
+import { isState } from "@dienstplan/core";
 
 export class AdminError extends Error {}
 
@@ -39,14 +40,15 @@ async function newUser(tx: Pick<typeof prisma, "user" | "calendarToken">, d: { e
 }
 
 /** First-time setup of an empty database: one ward, its shift types and the first admin. Refuses to run twice. */
-export async function bootstrap(input: { wardName: string; adminEmail: string; adminName: string; adminPassword?: string }) {
+export async function bootstrap(input: { wardName: string; adminEmail: string; adminName: string; adminPassword?: string; state?: string | null }) {
   if (!input.wardName.trim() || !input.adminName.trim()) throw new AdminError("Stationsname und Name des Admins dürfen nicht leer sein.");
   const email = normEmail(input.adminEmail);
   const password = input.adminPassword ?? generatePassword();
   checkPassword(password);
+  if (input.state && !isState(input.state)) throw new AdminError(`Unbekanntes Bundesland: ${input.state} (z. B. BY, NW, BE)`);
   return prisma.$transaction(async (tx) => {
     if ((await tx.user.count()) > 0 || (await tx.ward.count()) > 0) throw new AdminError("Die Datenbank ist bereits eingerichtet. Weitere Personen legst du mit create-user an.");
-    const ward = await tx.ward.create({ data: { name: input.wardName.trim() } });
+    const ward = await tx.ward.create({ data: { name: input.wardName.trim(), state: input.state ?? null } });
     await tx.shiftType.createMany({ data: DEFAULT_TYPES.map((t) => ({ ...t, wardId: ward.id })) });
     const admin = await newUser(tx, { email, name: input.adminName, role: "ADMIN", wardId: ward.id, password });
     return { ward, admin, password: input.adminPassword ? null : password };

@@ -7,9 +7,9 @@ const d = (s: string) => new Date(`${s}T00:00:00Z`);
 
 async function main() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE "AuditLog","Notification","CalendarToken","DeviceToken","PersonalEntry","Approval","Shift","LeaveEntitlement","Plan","ShiftType","User","Ward" CASCADE`,
+    `TRUNCATE "AuditLog","Notification","CalendarToken","DeviceToken","PersonalEntry","Approval","Shift","LeaveEntitlement","WardHoliday","Plan","ShiftType","User","Ward" CASCADE`,
   );
-  const ward = await prisma.ward.create({ data: { name: "Station 3A – Innere Medizin" } });
+  const ward = await prisma.ward.create({ data: { name: "Station 3A – Innere Medizin", state: "NW" } });
   const hash = await bcrypt.hash("demo1234", 10);
   const people: [string, string, Role][] = [
     ["admin@demo.de", "Admin", "ADMIN"],

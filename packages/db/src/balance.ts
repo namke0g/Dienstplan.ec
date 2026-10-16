@@ -2,6 +2,7 @@ import { computeBalance, countDays, eachDay, type Balance, type CountMode } from
 import { prisma } from "./client";
 import { toDate, toYmd } from "./dates";
 import { actor, type Tx } from "./service";
+import { wardHolidays } from "./holidays";
 
 export class BalanceError extends Error {}
 
@@ -18,6 +19,7 @@ export async function getBalance(userId: string, year: number, today = todayYmd(
   const ent = await client.leaveEntitlement.findUnique({ where: { userId_year: { userId, year } } });
   if (!ent) return { configured: false, year, mode };
 
+  const holidays = new Set((await wardHolidays(user.wardId, `${year}-01-01`, `${year}-12-31`, client)).keys());
   const [rows, open, approved] = await Promise.all([
     client.shift.findMany({ where: { userId, date: yearRange(year), shiftType: { consumesLeave: true } }, select: { date: true } }),
     client.leaveRequest.findMany({ where: { userId, status: "PENDING", shiftType: { consumesLeave: true }, start: { lte: toDate(`${year}-12-31`) }, end: { gte: toDate(`${year}-01-01`) } } }),
@@ -31,6 +33,7 @@ export async function getBalance(userId: string, year: number, today = todayYmd(
     inRoster: rows.map((r) => toYmd(r.date)),
     requested: open.flatMap((r) => expand(r)),
     held: approved.flatMap((r) => expand(r, r.pendingMonths)),
+    holidays,
   });
   return { ...b, configured: true, mode, carryOverExpires: ent.carryOverExpires ? toYmd(ent.carryOverExpires) : null };
 }
@@ -41,7 +44,9 @@ export async function assertEnoughLeave(tx: Tx, userId: string, start: string, e
   for (const year of years) {
     const b = await getBalance(userId, year, today, tx);
     if (!b.configured) continue;
-    const days = countDays(eachDay(start, end).filter((d) => d.startsWith(`${year}-`)), b.mode);
+    const u = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+    const holidays = new Set((await wardHolidays(u.wardId, `${year}-01-01`, `${year}-12-31`, tx)).keys());
+    const days = countDays(eachDay(start, end).filter((d) => d.startsWith(`${year}-`)), b.mode, holidays);
     if (days > b.remaining) {
       return `Nicht genug Resturlaub ${year}: ${b.remaining} Tag(e) verfügbar, ${days} beantragt.`;
     }

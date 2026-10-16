@@ -1,6 +1,6 @@
 /**
  * Operator CLI (run inside the "migrate" container, see DEPLOYMENT.md):
- *   bootstrap     --ward "Station 3A" --email admin@klinik.de --name "Vorname Nachname"
+ *   bootstrap     --ward "Station 3A" --email admin@klinik.de --name "Vorname Nachname" [--state BY]   (Bundesland for public holidays)
  *   create-user   --email x@klinik.de --name "Vorname Nachname" --role EMPLOYEE|PLANNER|PDL|BETRIEBSRAT|ADMIN
  *   reset-password --email x@klinik.de
  *   deactivate|activate --email x@klinik.de
@@ -19,7 +19,7 @@ const password = process.env.PASSWORD || undefined;
 async function main() {
   switch (cmd) {
     case "bootstrap": {
-      const r = await bootstrap({ wardName: need("ward"), adminEmail: need("email"), adminName: need("name"), adminPassword: password });
+      const r = await bootstrap({ wardName: need("ward"), adminEmail: need("email"), adminName: need("name"), adminPassword: password, state: flag("state")?.toUpperCase() ?? null });
       console.log(`Station "${r.ward.name}" und Admin ${r.admin.email} angelegt.`);
       if (r.password) console.log(`Einmaliges Passwort: ${r.password}\n(Bitte sicher notieren, es wird nicht noch einmal angezeigt.)`);
       break;
