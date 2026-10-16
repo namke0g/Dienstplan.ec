@@ -32,16 +32,23 @@ docker compose run --rm migrate pnpm --filter @dienstplan/db admin bootstrap \
 Das einmalige Passwort steht danach im Terminal. Anmelden unter `https://<DOMAIN>`.
 
 ## 3. Personen anlegen und verwalten
-Es gibt noch **keine Benutzerverwaltung in der Oberfläche**; Konten legt ein Operator per Kommandozeile an:
+**In der Oberfläche** (Menü *Benutzer*): Admins verwalten alle Konten, Planer:innen nur die Konten der Mitarbeitenden (sie können keine Admins, PDL- oder Betriebsrat-Konten anlegen oder ändern).
+- **Anlegen:** Name, E-Mail, Rolle, optional Urlaubstage für das laufende Jahr. Lässt du das Passwort leer, wird eins erzeugt und **einmalig** angezeigt (danach nie wieder). Gib es persönlich weiter; die Person ändert es danach selbst: Web unter *Mein Konto*, App unter *Mehr → Passwort ändern*.
+- **Bearbeiten:** Name, E-Mail, Rolle (nur Admin, nicht bei sich selbst). Eine geänderte Rolle oder E-Mail meldet die Person überall ab, damit die neuen Rechte sofort gelten.
+- **Neues Passwort erzeugen:** zeigt das neue Passwort einmalig und beendet alle bisherigen Anmeldungen (Browser und App).
+- **Deaktivieren** (Austritt, Elternzeit …): sperrt die Anmeldung, beendet Sitzungen, stoppt Push, zieht offene Urlaubs- und Tauschanträge zurück. Der Dienstplan-Verlauf bleibt; vergangene Pläne zeigen die Person weiter. Du kannst sie später **wieder aktivieren**.
+- **Anonymisieren** (nur Admin, nur bei deaktivierten Konten, Bestätigung durch Eingabe der E-Mail): löscht Name, E-Mail, Zugang, private Einträge, Geräte, Mitteilungen, Urlaubsanspruch und Freitexte unwiderruflich; die Dienste im Plan bleiben als „Ehemalige Person n“. Das ist der technische Baustein für das Löschkonzept, ersetzt aber keine Aufbewahrungsfristen-Prüfung.
+- Es muss immer mindestens ein aktiver Admin bleiben; man kann sich nicht selbst deaktivieren oder die eigene Rolle ändern. Alle Änderungen werden protokolliert (Tabelle `UserAudit`).
+
+**Auf der Kommandozeile** (z. B. für den allerersten Admin oder wenn niemand mehr angemeldet ist):
 ```bash
 A="docker compose run --rm migrate pnpm --filter @dienstplan/db admin"
 $A create-user --email anna@klinik.de --name "Anna Becker" --role employee      # Passwort wird erzeugt und einmalig gezeigt
-$A create-user --email planer@klinik.de --name "Petra Planer" --role planner    # planner | pdl | betriebsrat | employee | admin
 $A reset-password --email anna@klinik.de
-$A deactivate --email anna@klinik.de      # Austritt: Anmeldung gesperrt, Daten bleiben für den Dienstplan erhalten
+$A deactivate --email anna@klinik.de
 $A list-users
 ```
-Passwörter werden nur einmal angezeigt; gib sie persönlich weiter. **Jede Person soll es danach selbst ändern**: Web unter *Mein Konto* (Name oben rechts), App unter *Mehr → Passwort ändern*. Beim Ändern oder Zurücksetzen werden alle anderen Anmeldungen (Browser und App-Token) ungültig. Mit `PASSWORD=... ` vor dem Befehl kann ein eigenes (mind. 12 Zeichen) gesetzt werden. Danach als Planer:in unter *Urlaubskonto* den Jahresanspruch eintragen („Standardanspruch für alle“).
+Mit `PASSWORD=... ` vor dem Befehl kann ein eigenes (mind. 12 Zeichen) gesetzt werden. Danach als Planer:in unter *Urlaubskonto* den Jahresanspruch prüfen („Standardanspruch für alle“).
 
 ## 4. Mobile App (iOS und Android)
 Die App ist ein Expo-Projekt (`apps/mobile`) und wird mit EAS gebaut; sie spricht mit deinem Server.
@@ -80,17 +87,17 @@ docker compose start web
 `SESSION_SECRET` ändern + `docker compose up -d web` meldet alle ab. Datenbankpasswort: im laufenden Container `ALTER USER dienstplan PASSWORD '…'` ausführen, dann `.env` anpassen und `docker compose up -d`.
 
 ## 6. Sicherheit und Datenschutz
-**Eingebaut:** HTTPS mit HSTS, Sicherheits-Header, Passwörter mit bcrypt, Passwort ändern (invalidiert andere Sitzungen), begrenzte Anmeldeversuche (5 Fehlversuche je Konto und IP in 15 Minuten, 20 je IP), getrennte Tokens für Web und App, Krankheitsdaten für Kolleg:innen und Betriebsrat nur als „abwesend“, Audit-Protokoll der Planänderungen, Datenbank nur im internen Netz, Konfigurationsprüfung beim Start (die App startet nicht mit schwachem `SESSION_SECRET`).
+**Eingebaut:** HTTPS mit HSTS, Sicherheits-Header, Passwörter mit bcrypt, Passwort ändern (invalidiert andere Sitzungen), begrenzte Anmeldeversuche (5 Fehlversuche je Konto und IP in 15 Minuten, 20 je IP), getrennte Tokens für Web und App, Krankheitsdaten für Kolleg:innen und Betriebsrat nur als „abwesend“, Audit-Protokoll der Planänderungen, Benutzerverwaltung mit Rollengrenzen, Protokoll und Anonymisierung, Datenbank nur im internen Netz, Konfigurationsprüfung beim Start (die App startet nicht mit schwachem `SESSION_SECRET`).
 
 **Das musst du als Betreiber regeln** (organisatorisch, nicht durch Software lösbar):
 - Auftragsverarbeitungsvertrag, wenn ein externer Dienstleister hostet; Hosting in der EU.
 - Verzeichnis der Verarbeitungstätigkeiten, ggf. Datenschutz-Folgenabschätzung (Beschäftigten- und Gesundheitsdaten, Art. 9 DSGVO).
 - Dienstvereinbarung mit dem Betriebsrat (Mitbestimmung bei technischer Überwachung/Dienstplänen).
 - Verschlüsselung der Server-Festplatte und der Offsite-Backups.
-- Löschkonzept: Es gibt **noch kein Werkzeug zum Löschen oder Anonymisieren** ausgeschiedener Personen; „deactivate“ sperrt nur die Anmeldung.
+- Löschkonzept: „Anonymisieren“ entfernt die personenbezogenen Daten ausgeschiedener Personen. Du legst fest, **wann** (Aufbewahrungsfristen, z. B. für Arbeitszeitnachweise), und führst es manuell aus; automatische Löschfristen gibt es nicht.
 
 ## 7. Bekannte Grenzen
-- Keine Benutzerverwaltung in der Oberfläche (Konten anlegen/sperren/zurücksetzen nur per CLI, siehe 3). Kein „Passwort vergessen“ per E-Mail (Operator setzt zurück). Keine Zwei-Faktor-Anmeldung.
+- Kein „Passwort vergessen“ per E-Mail (ein Admin oder Planer:in erzeugt ein neues Passwort). Keine Zwei-Faktor-Anmeldung. Die Benutzerverwaltung kennt nur eine Station.
 - Die Anmeldebegrenzung liegt im Arbeitsspeicher einer Instanz (Neustart setzt sie zurück; mehrere Instanzen bräuchten einen gemeinsamen Speicher).
 - Ein Server, eine Datenbank: keine Ausfallsicherheit. Feiertage sind im Urlaubskonto nicht berücksichtigt.
 

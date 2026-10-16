@@ -10,10 +10,10 @@ const ALPHABET = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // 
 
 export const generatePassword = (len = 16) => Array.from({ length: len }, () => ALPHABET[randomInt(ALPHABET.length)]).join("");
 
-function checkPassword(pw: string) {
+export function checkPassword(pw: string) {
   if (pw.length < MIN_PASSWORD) throw new AdminError(`Das Passwort muss mindestens ${MIN_PASSWORD} Zeichen lang sein.`);
 }
-const normEmail = (e: string) => {
+export const normEmail = (e: string) => {
   const email = e.trim().toLowerCase();
   if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new AdminError(`Ungültige E-Mail-Adresse: ${e}`);
   return email;

@@ -6,7 +6,8 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { prisma, setShift, submitPlan, reviewPlan, publishPlan, toDate, deliverPendingNotifications, createLeave, cancelLeave, decideLeave, applyPendingLeave, LeaveError,
   createSwap, acceptSwap, declineSwap, cancelSwap, decideSwap, SwapError,
-  setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError } from "@dienstplan/db";
+  setEntitlement, setDefaultEntitlements, rolloverYear, BalanceError, changePassword, AdminError, ForbiddenError,
+  createManagedUser, updateManagedUser, setManagedActive, resetManagedPassword, anonymizeUser, type Role } from "@dienstplan/db";
 import { createSession, destroySession, getUser, homeFor, requireUser } from "@/lib/auth";
 import { clientIp, loginBlockedFor, recordLoginFailure, recordLoginSuccess } from "@/lib/rateLimit";
 
@@ -202,4 +203,57 @@ export async function changePasswordAction(_: string | null, form: FormData): Pr
   recordLoginSuccess(ip, me.email);
   await createSession(me.id); // other sessions were just invalidated; keep this one signed in
   redirect("/konto?ok=1");
+}
+
+const ROLES: Role[] = ["EMPLOYEE", "PLANNER", "PDL", "BETRIEBSRAT", "ADMIN"];
+const asRole = (v: FormDataEntryValue | null): Role => (ROLES.includes(String(v) as Role) ? (String(v) as Role) : "EMPLOYEE");
+
+/** Turns expected user-management errors into a message; anything unexpected still surfaces as a real error. */
+async function userGuard<T>(fn: () => Promise<T>): Promise<{ ok: T } | { error: string }> {
+  try { return { ok: await fn() }; }
+  catch (e) { if (e instanceof AdminError || e instanceof ForbiddenError) return { error: e.message }; throw e; }
+}
+
+export interface UserFormState { error?: string; values?: { name: string; email: string; role: string; entitlement: string }; done?: { name: string; email: string; password: string | null; what: "created" | "reset" } }
+
+export async function createUserAction(_: UserFormState, form: FormData): Promise<UserFormState> {
+  const me = await requireUser(["ADMIN", "PLANNER"]);
+  const days = String(form.get("entitlement") ?? "").trim().replace(",", ".");
+  const r = await userGuard(() => createManagedUser(me.id, {
+    name: String(form.get("name") ?? ""), email: String(form.get("email") ?? ""), role: asRole(form.get("role")),
+    password: String(form.get("password") ?? "") || undefined, entitlementDays: days === "" ? null : Number(days),
+  }));
+  if ("error" in r) return { error: r.error, values: { name: String(form.get("name") ?? ""), email: String(form.get("email") ?? ""), role: String(form.get("role") ?? "EMPLOYEE"), entitlement: String(form.get("entitlement") ?? "") } };
+  revalidatePath("/benutzer");
+  return { done: { name: r.ok.user.name, email: r.ok.user.email, password: r.ok.password, what: "created" } };
+}
+
+export async function resetUserPasswordAction(userId: string, _: UserFormState, form: FormData): Promise<UserFormState> {
+  const me = await requireUser(["ADMIN", "PLANNER"]);
+  const r = await userGuard(async () => ({ ...(await resetManagedPassword(me.id, userId, String(form.get("password") ?? "") || undefined)), name: String(form.get("name") ?? ""), email: String(form.get("email") ?? "") }));
+  if ("error" in r) return { error: r.error };
+  return { done: { name: r.ok.name, email: r.ok.email, password: r.ok.password, what: "reset" } };
+}
+
+async function backWith(result: { error: string } | { ok: unknown }, okMessage: string): Promise<never> {
+  revalidatePath("/benutzer");
+  redirect("error" in result ? `/benutzer?err=${encodeURIComponent(result.error)}` : `/benutzer?ok=${encodeURIComponent(okMessage)}`);
+}
+
+export async function updateUserAction(userId: string, form: FormData) {
+  const me = await requireUser(["ADMIN", "PLANNER"]);
+  const role = form.get("role");
+  await backWith(await userGuard(() => updateManagedUser(me.id, userId, { name: String(form.get("name") ?? ""), email: String(form.get("email") ?? ""), role: role ? asRole(role) : undefined })), "Gespeichert.");
+}
+
+export async function setUserActiveAction(userId: string, active: boolean) {
+  const me = await requireUser(["ADMIN", "PLANNER"]);
+  await backWith(await userGuard(() => setManagedActive(me.id, userId, active)), active ? "Konto aktiviert." : "Konto deaktiviert. Anmeldungen, Push und offene Anträge wurden beendet.");
+}
+
+export async function anonymizeUserAction(userId: string, form: FormData) {
+  const me = await requireUser(["ADMIN"]);
+  const expected = String(form.get("expected") ?? "");
+  if (String(form.get("confirm") ?? "").trim().toLowerCase() !== expected.toLowerCase()) await backWith({ error: "Die Bestätigung stimmt nicht mit der E-Mail-Adresse überein. Es wurde nichts geändert." }, "");
+  await backWith(await userGuard(() => anonymizeUser(me.id, userId)), "Konto anonymisiert.");
 }

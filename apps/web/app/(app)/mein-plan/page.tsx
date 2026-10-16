@@ -10,7 +10,7 @@ export default async function MeinPlanPage({ searchParams }: { searchParams: Pro
   const me = await requireUser();
   const month = monthParam((await searchParams).m);
   const days = daysInMonth(`${month}-01`);
-  const { staff, types } = await wardContext(me.wardId);
+  const { staff, types } = await wardContext(me.wardId, [month]);
   const plan = await planFor(me.wardId, month);
   const published = plan?.publishedSnapshot != null;
   const allShifts = snapshotOf(plan);

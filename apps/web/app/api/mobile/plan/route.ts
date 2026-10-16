@@ -9,7 +9,7 @@ export async function GET(req: Request) {
   if (!me) return unauthorized();
   const month = monthParam(new URL(req.url).searchParams.get("m") ?? undefined);
   const days = daysInMonth(`${month}-01`);
-  const { staff, types } = await wardContext(me.wardId);
+  const { staff, types } = await wardContext(me.wardId, [month]);
   const plan = await planFor(me.wardId, month);
   const published = plan?.publishedSnapshot != null;
   const see = canSeeSick(me.role);
