@@ -1,6 +1,6 @@
 import { prisma, getOrCreatePlan, daysInMonth } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { describeViolation, draftShifts, violationsFor, wardContext } from "@/lib/roster";
+import { describeViolation, draftShifts, toGridTypes, violationsFor, wardContext } from "@/lib/roster";
 import { fmtTime, monthParam } from "@/lib/format";
 import { MonthNav } from "@/components/MonthNav";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -48,11 +48,11 @@ export default async function PlanerPage({ searchParams }: { searchParams: Promi
         })}
       </div>
 
-      <Legend types={types} />
+      <Legend types={toGridTypes(types)} />
       <RosterGrid key={`${plan.id}-${plan.version}-${plan.status}`} planId={plan.id} editable={editable && plan.status !== "IN_REVIEW"} days={daysInMonth(`${month}-01`)} staff={staff}
-        types={types.map(({ id, code, name, color }) => ({ id, code, name, color }))}
+        types={toGridTypes(types)}
         shifts={Object.fromEntries(shifts.map((s) => [`${s.userId}|${s.date}`, s.shiftTypeId]))} flagged={flagged} />
-      <p className="text-xs text-slate-500">Klick auf ein Feld wechselt den Dienst: {types.map((t) => `${t.code} ${fmtTime(t.startMin)}–${fmtTime(t.endMin)}`).join(" · ")} · frei.</p>
+      <p className="text-xs text-slate-500">Klick auf ein Feld öffnet die Auswahl: {types.filter((t) => t.kind === "WORK").map((t) => `${t.code} ${fmtTime(t.startMin)}–${fmtTime(t.endMin)}`).join(" · ")}. Abwesenheiten (Urlaub, Krank, Sonderurlaub) zählen nicht als Arbeitstage und nicht zur Mindestbesetzung.</p>
 
       {violations.length > 0 && (
         <div className="card border-rose-200">

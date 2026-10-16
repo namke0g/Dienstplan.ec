@@ -5,6 +5,8 @@ export interface IcsShift {
   id: string;
   date: string; // YYYY-MM-DD
   type: ShiftTypeDef & { name: string };
+  /** absences are exported as all-day events */
+  allDay?: boolean;
   note?: string;
   /** bumps when the shift changes, so clients refresh it */
   sequence?: number;
@@ -50,6 +52,14 @@ export function buildIcs(shifts: IcsShift[], opts: { calName: string; domain?: s
     "X-PUBLISHED-TTL:PT1H",
   ];
   for (const s of shifts) {
+    if (s.allDay || (s.type.kind ?? "WORK") !== "WORK") {
+      const ymd = (add: number) => new Date(Date.parse(`${s.date}T00:00:00Z`) + add * 86_400_000).toISOString().slice(0, 10).replace(/-/g, "");
+      lines.push(
+        "BEGIN:VEVENT", `UID:shift-${s.id}@${domain}`, `DTSTAMP:${dtstamp}`, `SEQUENCE:${s.sequence ?? 0}`,
+        `DTSTART;VALUE=DATE:${ymd(0)}`, `DTEND;VALUE=DATE:${ymd(1)}`, `SUMMARY:${esc(s.type.name)}`, "TRANSP:TRANSPARENT", "END:VEVENT",
+      );
+      continue;
+    }
     const overnight = s.type.endMin <= s.type.startMin;
     lines.push(
       "BEGIN:VEVENT",

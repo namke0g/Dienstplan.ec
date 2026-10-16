@@ -1,6 +1,6 @@
 import { prisma, daysInMonth, toYmd } from "@dienstplan/db";
 import { requireUser } from "@/lib/auth";
-import { describeViolation, draftShifts, violationsFor, wardContext } from "@/lib/roster";
+import { ABSENT_TYPE, canSeeSick, describeViolation, draftShifts, maskSick, toGridTypes, violationsFor, wardContext } from "@/lib/roster";
 import { monthLabel } from "@/lib/format";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Legend, RosterGrid } from "@/components/RosterGrid";
@@ -13,7 +13,7 @@ export default async function PruefungPage({ searchParams }: { searchParams: Pro
   const plans = await prisma.plan.findMany({ where: { wardId: me.wardId, status: { in: ["IN_REVIEW", "CHANGES_REQUESTED", "APPROVED"] } }, orderBy: { month: "asc" }, include: { approvals: true } });
   const names = new Map(staff.map((s) => [s.id, s.name]));
   const typeName = new Map(types.map((t) => [t.id, t.name]));
-  const gridTypes = types.map(({ id, code, name, color }) => ({ id, code, name, color }));
+  const gridTypes = canSeeSick(me.role) ? toGridTypes(types) : [...toGridTypes(types.filter((t) => t.kind !== "SICK")), ABSENT_TYPE];
 
   return (
     <>
@@ -22,8 +22,9 @@ export default async function PruefungPage({ searchParams }: { searchParams: Pro
       {plans.length === 0 && <p className="card text-sm text-slate-500">Keine Pläne zur Prüfung.</p>}
       {await Promise.all(plans.map(async (p) => {
         const month = toYmd(p.month).slice(0, 7);
-        const shifts = await draftShifts(p.id);
-        const violations = violationsFor(shifts, types);
+        const all = await draftShifts(p.id);
+        const violations = violationsFor(all, types);
+        const shifts = maskSick(all, types, me.id, canSeeSick(me.role));
         const mine = p.approvals.find((a) => a.version === p.version && a.role === me.role);
         const canDecide = p.status === "IN_REVIEW" && mine?.decision === "PENDING";
         return (
